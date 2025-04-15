@@ -18,12 +18,15 @@ Currently Spotify is fully working, where as the other two are a Work in Progres
 
 Shell Shock uses python 3.12 or greater, and leverages uv
 
+>  Install instructions for python and uv, info [here](./docs/python_uv.md)
+
 With python 3.12 and uv installed you simply do the following inside the folder:
 
 1) `uv venv` to create the virtual environment (venv)
 2) `.venv\Scripts\Activate` to activate the venv
-3) copy the example.env to a new .env file
-4) edit the .env file
+3) `uv pip install -e .` to install the necessary packages
+4) copy the example.env to a new .env file
+5) edit the .env file
 
 ### .env Configuration
 
