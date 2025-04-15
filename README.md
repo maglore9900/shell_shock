@@ -100,3 +100,39 @@ TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has alr
 2) Support multiple local media locations
 3) Plugin dev documentation
 4) More in program playlist customization
+
+## File Structure
+
+```python
+|   example.env
+|   main.py
+|   media_index.json
+|   plugin_settings.json
+|   pyproject.toml
+|   README.md        
++---docs
+|       1744722706264.png
+|       1744722760283.png
+|       1744723037671.png
+|       python_uv.md 
++---logs
+|       application.log  
++---modules
+|   |   cli.py
+|   |   logging_utils.py
+|   |   media_handler.py
+|   |   player.py
+|   |   playlist_handler.py
+|   |   plugin_manager.py
+|   |   spotify.py
+|         
++---playlists
++---plugins
+|   |   podcast_plugin.py
+|   |   spotify_plugin.py
+|   |   youtube_plugin.py
+|   |   __init__.py
++---podcast_downloads
++---youtube_downloads
+
+```
