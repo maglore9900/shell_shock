@@ -1,0 +1,18 @@
+[project]
+name = "shell-shock"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "ffmpeg-python>=0.2.0",
+    "pydantic>=2.11.2",
+    "pydub>=0.25.1",
+    "pygame>=2.6.1",
+    "python-environ>=0.4.54",
+    "pytubefix>=8.12.3",
+    "readchar>=4.2.1",
+    "spotipy>=2.25.1",
+]
+[tool.setuptools]
+packages = ["modules"]
