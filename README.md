@@ -94,6 +94,9 @@ More documentation to come.
 
 TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has already been written. You will just need to understand the minimum required functionality to write your own.
 
+1) Setup the spotify plugin, instructions [here](./docs/spotify_app.md)
+2)
+
 ## ToDo
 
 1) Consolidation of index and config files
