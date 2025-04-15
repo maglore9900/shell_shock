@@ -2,7 +2,7 @@
 
 Terminal-based (TUI) audio media player with extensible plugin system.
 
- ![1744722706264.png](./1744722706264.png)
+![1744722706264.png](./docs/1744722706264.png)
 
 Shell Shock is primarily designed to play local audio files but has a plugin system that allows expanding its capabilities.
 
@@ -69,7 +69,7 @@ There is a help menu `help` which will show you the commands. Plugins can have t
 
 There is currently a simple settings feature which you will need to use to enable and auto-load plugins.
 
-![1744722760283.png](./1744722760283.png)
+![1744722760283.png](./docs/1744722760283.png)
 
 > Note: you will notice that here it shows `sp` for Spotify, users can modify the command call in the .env
 
@@ -77,7 +77,7 @@ There is currently a simple settings feature which you will need to use to enabl
 
 The now command changes the interface to a more conventional media interface
 
- ![1744723037671.png](./1744723037671.png)
+![1744723037671.png](./docs/1744723037671.png)
 
 ### Playlists
 
