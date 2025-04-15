@@ -79,8 +79,21 @@ The now command changes the interface to a more conventional media interface
 
  ![1744723037671.png](./1744723037671.png)
 
+### Playlists
+
+Playlists are currently pretty simple. You can create them in-app and edit them in notepad or in-app.
+
+More to come.
+
 ## Plugins
 
 More documentation to come.
 
 TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has already been written. You will just need to understand the minimum required functionality to write your own.
+
+## ToDo
+
+1) Consolidation of index and config files
+2) Support multiple local media locations
+3) Plugin dev documentation
+4) More in program playlist customization
