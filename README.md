@@ -68,7 +68,7 @@ When you have activated the venv simply type `py main.py` to start Shell Shock.
 
 There is a help menu `help` which will show you the commands. Plugins can have their own custom commands and you will see the plugin listed in the help menu dynamically.
 
-> for example: spotify play will play a random song, spotify pause will pause the song
+> for example: `spotify play` will play a random song, `spotify pause` will pause the song
 
 There is currently a simple settings feature which you will need to use to enable and auto-load plugins.
 
@@ -78,7 +78,7 @@ There is currently a simple settings feature which you will need to use to enabl
 
 ### Now Playing
 
-The now command changes the interface to a more conventional media interface
+The `now` command changes the interface to a more conventional media interface
 
 ![1744723037671.png](./docs/1744723037671.png)
 
