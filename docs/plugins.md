@@ -50,7 +50,7 @@ A basic plugin must implement the following abstract methods:
 
 ### Plugin Template
 
-Use the provided `example_plugin.py` template as a starting point for new plugins.
+Use the provided [template_plugin.py](template_plugin.py) template as a starting point for new plugins.
 
 ## Key Concepts
 
