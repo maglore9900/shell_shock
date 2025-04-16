@@ -50,6 +50,7 @@ class MusicPlayer:
         self.state = PlayerState.STOPPED
         self.current_track = None
         self.playlist = []
+        self.media = []
         self.current_index = 0
         self.current_playlist_name = None
         self.playback_info = {
@@ -114,10 +115,13 @@ class MusicPlayer:
         else:
             # Default to home directory if no path is specified
             paths = [os.path.expanduser("~")]
-            self.media_handler.add_media_location(self.MUSIC_LIBRARY_PATH)
-            # Initial index update
-            self.media_handler.update_media_index()
-            self.load_media(self.MUSIC_LIBRARY_PATH)
+
+        # self.media_handler.add_media_location(self.MUSIC_LIBRARY_PATH)
+        self.media_handler.add_media_location(paths)
+        self.media_handler.update_media_index()
+        # self.load_media(self.MUSIC_LIBRARY_PATH)
+        for path in paths:
+            self.load_media(path)
         
     def update_playback_info(self, info):
         """Update playback information"""
@@ -228,22 +232,22 @@ class MusicPlayer:
         )
         
         # Merge both sets of files (indexed and direct)
-        self.playlist = list(set(direct_files + indexed_files))
+        self.media = list(set(direct_files + indexed_files))
         
         # Apply sorting based on environment variable
         sort_method = self.DEFAULT_SORT.lower()
         if sort_method == 'name':
-            self.playlist.sort(key=lambda x: os.path.basename(x).lower())
+            self.media.sort(key=lambda x: os.path.basename(x).lower())
         elif sort_method == 'date':
-            self.playlist.sort(key=lambda x: os.path.getmtime(x))
+            self.media.sort(key=lambda x: os.path.getmtime(x))
         elif sort_method == 'random':
-            random.shuffle(self.playlist)
+            random.shuffle(self.media)
         
         # Notify plugins
-        self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
+        # self._notify_plugins('on_playlist_loaded', {'playlist': self.media})
         
         # Print loading summary
-        print(f"Loaded {len(self.playlist)} tracks from {directory}")
+        print(f"Loaded {len(self.media)} tracks from {directory}")
         
     # Update the play method in player.py
     def play(self):
@@ -255,6 +259,27 @@ class MusicPlayer:
         if self.state == PlayerState.STOPPED:
             if self.playlist and self.current_index < len(self.playlist):
                 self.current_track = self.playlist[self.current_index]
+                print(f"Playing track: {os.path.basename(self.current_track)}")
+                
+                # Get track duration before playing
+                self.current_track_length = self.media_handler.get_track_duration(self.current_track)
+                
+                # Use new MediaHandler method to play
+                success, temp_file = self.media_handler.play_audio(self.current_track)
+                if not success:
+                    print(f"Cannot play {os.path.basename(self.current_track)}: format not supported")
+                    return
+                
+                self.track_start_time = time.time()
+                self.state = PlayerState.PLAYING
+                
+                # Update plugin manager with current playback info
+                self.media_handler.update_play_stats(self.current_track)
+                
+                # Notify plugins
+                self._notify_plugins('on_play', {'track': self.current_track})
+            elif self.media and self.current_index < len(self.media):
+                self.current_track = self.media[self.current_index]
                 print(f"Playing track: {os.path.basename(self.current_track)}")
                 
                 # Get track duration before playing
