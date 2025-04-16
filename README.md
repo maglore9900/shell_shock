@@ -91,12 +91,13 @@ More to come.
 
 ## Plugins
 
-More documentation to come.
-
 TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has already been written. You will just need to understand the minimum required functionality to write your own.
 
-1) Setup the spotify plugin, instructions [here](./docs/spotify_app.md)
-2)
+Writing your own plugin info [here](./docs/plugins.md) and plugin template [here](./docs/template_plugin.py).
+
+### Configuring existing plugins
+
+1) Setup the spotify plugin, instructions [here](./docs/spotify_app.md).
 
 ## ToDo
 
@@ -113,7 +114,7 @@ TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has alr
 |   media_index.json
 |   plugin_settings.json
 |   pyproject.toml
-|   README.md      
+|   README.md    
 +---docs
 |       1744722706264.png
 |       1744722760283.png
@@ -129,7 +130,7 @@ TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has alr
 |   |   playlist_handler.py
 |   |   plugin_manager.py
 |   |   spotify.py
-|       
+|     
 +---playlists
 +---plugins
 |   |   podcast_plugin.py
