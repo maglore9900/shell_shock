@@ -10,6 +10,7 @@ from pathlib import Path
 from datetime import datetime
 from pydub import AudioSegment
 from modules.logging_utils import app_logger as log
+from typing import Dict, Any, Optional, List, Union, TypedDict, Literal, TypeVar, Generic
 
 class MediaHandler:
     """Handles media operations like loading, converting, indexing, and getting track information."""
@@ -42,20 +43,16 @@ class MediaHandler:
         """Get a list of all supported file formats."""
         return self.all_supported
     
-    def add_media_location(self, directory):
-        """Add a new location to be indexed.
+    def add_media_location(self, directories: List[str]):
+        """Add a new location or locations to be indexed.
         
         Args:
-            directory (str): Path to the directory to index
-            
-        Returns:
-            bool: True if added, False if already exists or not found
+            directories (List[str]): Path to the directory to index
         """
-        directory = os.path.abspath(directory)
-        if directory not in self.media_locations and os.path.exists(directory):
-            self.media_locations.append(directory)
-            return True
-        return False
+        for directory in directories:
+            directory = os.path.abspath(directory)
+            if directory not in self.media_locations and os.path.exists(directory):
+                self.media_locations.append(directory)
     
     def remove_media_location(self, directory):
         """Remove a location from the index.
