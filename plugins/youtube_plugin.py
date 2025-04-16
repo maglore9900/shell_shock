@@ -22,6 +22,7 @@ class Plugin(BasePlugin):
         self.current_temp_file = None
         
         # Create download directory if it doesn't exist
+        import os
         os.makedirs(self.download_dir, exist_ok=True)
         
         self.initialized = True
