@@ -102,9 +102,7 @@ Writing your own plugin info [here](./docs/plugins.md) and plugin template [here
 ## ToDo
 
 1) Consolidation of index and config files
-2) Support multiple local media locations
-3) Plugin dev documentation
-4) More in program playlist customization
+2) More in program playlist customization
 
 ## File Structure
 
@@ -114,7 +112,7 @@ Writing your own plugin info [here](./docs/plugins.md) and plugin template [here
 |   media_index.json
 |   plugin_settings.json
 |   pyproject.toml
-|   README.md    
+|   README.md  
 +---docs
 |       1744722706264.png
 |       1744722760283.png
@@ -130,7 +128,7 @@ Writing your own plugin info [here](./docs/plugins.md) and plugin template [here
 |   |   playlist_handler.py
 |   |   plugin_manager.py
 |   |   spotify.py
-|     
+|   
 +---playlists
 +---plugins
 |   |   podcast_plugin.py
@@ -141,3 +139,5 @@ Writing your own plugin info [here](./docs/plugins.md) and plugin template [here
 +---youtube_downloads
 
 ```
+
+.
