@@ -29,6 +29,10 @@ class PluginManager:
             if os.path.exists(self.settings_file):
                 with open(self.settings_file, 'r') as f:
                     self.settings = json.load(f)
+            else:
+                # Create default settings if file doesn't exist
+                with open(self.settings_file, 'w') as f:
+                    json.dump(self.settings, f, indent=2)
         except Exception as e:
             print(f"Error loading plugin settings: {e}")
     
