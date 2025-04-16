@@ -101,7 +101,19 @@ class MusicPlayer:
 
         # log.info("load music library")
         # Load music library if specified
+        # if self.MUSIC_LIBRARY_PATH:
+        #     self.MUSIC_LIBRARY_PATH = os.path.expanduser("~")
         if self.MUSIC_LIBRARY_PATH:
+            # Check if MUSIC_LIBRARY_PATH contains commas
+            if "," in self.MUSIC_LIBRARY_PATH:
+                # Split by comma and create a list of paths
+                paths = [path.strip() for path in self.MUSIC_LIBRARY_PATH.split(",")]
+            else:
+                # Create a list with a single element
+                paths = [self.MUSIC_LIBRARY_PATH]
+        else:
+            # Default to home directory if no path is specified
+            paths = [os.path.expanduser("~")]
             self.media_handler.add_media_location(self.MUSIC_LIBRARY_PATH)
             # Initial index update
             self.media_handler.update_media_index()
