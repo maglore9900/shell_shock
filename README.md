@@ -18,7 +18,7 @@ Currently Spotify is fully working, where as the other two are a Work in Progres
 
 Shell Shock uses python 3.12 or greater, and leverages uv
 
->  Install instructions for python and uv, info [here](./docs/python_uv.md)
+> Install instructions for python and uv, info [here](./docs/python_uv.md)
 
 With python 3.12 and uv installed you simply do the following inside the folder:
 
@@ -36,7 +36,8 @@ SPOTIFY_CLIENT_SECRET = ''
 SPOTIFY_REDIRECT_URI = ''
 
 # Set path for music files, for example "C:\code\media\songs"
-# Soon it will allow multiple locations
+# Multiple locations just need to be done with commas, full path is not necessary
+# Example: photos, music
 # Currently subfolders are fine if you set  SCAN_SUBDIRECTORIES
 MUSIC_LIBRARY_PATH=
 
@@ -112,7 +113,7 @@ TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has alr
 |   media_index.json
 |   plugin_settings.json
 |   pyproject.toml
-|   README.md        
+|   README.md      
 +---docs
 |       1744722706264.png
 |       1744722760283.png
@@ -128,7 +129,7 @@ TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has alr
 |   |   playlist_handler.py
 |   |   plugin_manager.py
 |   |   spotify.py
-|         
+|       
 +---playlists
 +---plugins
 |   |   podcast_plugin.py
