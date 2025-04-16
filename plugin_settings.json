@@ -2,6 +2,7 @@
   "auto_load_plugins": true,
   "enabled_plugins": [
     "podcast_plugin",
+    "spotify_plugin",
     "youtube_plugin"
   ]
 }

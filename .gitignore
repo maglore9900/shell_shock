@@ -13,3 +13,5 @@ podcast_downloads/
 youtube_downloads/
 logs/
 .env
+plugin_settings.json
+media_index.json
