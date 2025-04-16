@@ -13,7 +13,7 @@ class MusicPlayerCLI:
     def __init__(self, player):
         """Initialize with a player instance"""
         self.player = player
-        
+        self.paginate_cursor_position = 0
         # Define commands
         self.commands = {
             'load': self.load_directory,
@@ -45,7 +45,6 @@ class MusicPlayerCLI:
         self.add_plugin_commands()
 
     
-    # Update to add_plugin_commands method to expose pagination to plugins
     def add_plugin_commands(self):
         """Add commands for each plugin"""
         # Use the plugin manager to get command names
@@ -56,8 +55,9 @@ class MusicPlayerCLI:
             
             # Share pagination utilities with plugins that want it
             if hasattr(plugin, 'paginate_commands'):
-                # Attach the paginate_items method to the plugin for convenience
-                plugin.paginate_items = self.paginate_items
+                # No need to attach the paginate_items method anymore
+                # The plugin will call our method directly
+                pass
             
             # Register the command
             self.commands[command_name] = lambda args, plugin=plugin, name=plugin_name: self.plugin_command(plugin, name, args)
@@ -114,8 +114,6 @@ class MusicPlayerCLI:
                 method = getattr(plugin, subcmd)
                 result = method(subcmd_args)
                 
-                # Rest of the existing method...
-                
                 # Check if the result is a list/dict that should be paginated
                 if hasattr(plugin, 'paginate_commands') and subcmd in plugin.paginate_commands:
                     # Define play callback based on the command type
@@ -143,7 +141,7 @@ class MusicPlayerCLI:
                     custom_actions = {}
                     if subcmd == 'playlists' and hasattr(plugin, 'load'):
                         custom_actions['l'] = ('Load playlist', 
-                                            lambda: plugin.load([result[self.paginate_items.cursor_position][1]]))
+                                            lambda: plugin.load([result[self.paginate_cursor_position][1]]))
                     
                     # Display paginated results
                     self.plugin_paginated_results(plugin, subcmd, result, play_callback, custom_actions)
@@ -161,7 +159,7 @@ class MusicPlayerCLI:
                     if playback['state'] == 'PLAYING':
                         source_name = self.player.plugin_manager.get_plugin_display_name(playback['source'])
                         artist_str = f" - {playback['artist']}" if playback['artist'] else ""
-                    
+                
                 return result
             except Exception as e:
                 print(f"Error in plugin command: {e}")
@@ -250,13 +248,13 @@ class MusicPlayerCLI:
     
     def list_tracks(self, args):
         """List all tracks in the playlist with pagination."""
-        if not self.player.playlist:
-            print("Playlist is empty")
+        if not self.player.media:
+            print("Local media is empty")
             return
         
         # Prepare display items
         display_items = []
-        for i, track in enumerate(self.player.playlist):
+        for i, track in enumerate(self.player.media):
             display_items.append(track)
         
         # Custom formatter for track items
@@ -276,7 +274,7 @@ class MusicPlayerCLI:
         # Show paginated list
         result = self.paginate_items(
             display_items,
-            header=lambda page, total: print(f"\nPlaylist ({len(display_items)} tracks) - Page {page}/{total}:"),
+            header=lambda page, total: print(f"\nMedia ({len(display_items)} tracks) - Page {page}/{total}:"),
             footer=footer,
             item_formatter=item_formatter,
             current_index=self.player.current_index
@@ -1109,9 +1107,7 @@ class MusicPlayerCLI:
         current_page = 1
         
         # Cursor position within the current page
-        cursor_position = 0
-        # Store for use by plugin commands
-        self.paginate_items.cursor_position = cursor_position
+        self.paginate_cursor_position = 0
         
         while True:
             # Calculate slice for current page
@@ -1122,9 +1118,8 @@ class MusicPlayerCLI:
             items_on_page = end_idx - start_idx
             
             # Make sure cursor position is valid for current page
-            if cursor_position >= items_on_page:
-                cursor_position = items_on_page - 1
-                self.paginate_items.cursor_position = cursor_position
+            if self.paginate_cursor_position >= items_on_page:
+                self.paginate_cursor_position = items_on_page - 1
             
             # Clear screen and show header
             clear_screen()
@@ -1142,7 +1137,7 @@ class MusicPlayerCLI:
                 is_current = current_index is not None and i == current_index
                 
                 # Check if this is the selected item (cursor position)
-                is_selected = page_position == cursor_position
+                is_selected = page_position == self.paginate_cursor_position
                 
                 # Format and print item
                 print(item_formatter(display_idx, items[i], is_current, is_selected))
@@ -1159,42 +1154,36 @@ class MusicPlayerCLI:
             if key == readchar.key.RIGHT:
                 if current_page < total_pages:
                     current_page += 1
-                    cursor_position = 0  # Reset cursor position on page change
-                    self.paginate_items.cursor_position = cursor_position
+                    self.paginate_cursor_position = 0  # Reset cursor position on page change
                 else:
                     print("Already on the last page")
             
             elif key == readchar.key.LEFT:
                 if current_page > 1:
                     current_page -= 1
-                    cursor_position = 0  # Reset cursor position on page change
-                    self.paginate_items.cursor_position = cursor_position
+                    self.paginate_cursor_position = 0  # Reset cursor position on page change
                 else:
                     print("Already on the first page")
             
             # Handle cursor movement
             elif key == readchar.key.UP:
-                if cursor_position > 0:
-                    cursor_position -= 1
-                    self.paginate_items.cursor_position = cursor_position
+                if self.paginate_cursor_position > 0:
+                    self.paginate_cursor_position -= 1
                 else:
                     # Wrap to bottom if at top
-                    cursor_position = items_on_page - 1
-                    self.paginate_items.cursor_position = cursor_position
+                    self.paginate_cursor_position = items_on_page - 1
             
             elif key == readchar.key.DOWN:
-                if cursor_position < items_on_page - 1:
-                    cursor_position += 1
-                    self.paginate_items.cursor_position = cursor_position
+                if self.paginate_cursor_position < items_on_page - 1:
+                    self.paginate_cursor_position += 1
                 else:
                     # Wrap to top if at bottom
-                    cursor_position = 0
-                    self.paginate_items.cursor_position = cursor_position
+                    self.paginate_cursor_position = 0
             
             # Handle select with Enter
             elif key == readchar.key.ENTER:
                 # Calculate the absolute index in the items list
-                selected_index = start_idx + cursor_position
+                selected_index = start_idx + self.paginate_cursor_position
                 return selected_index
             
             # Handle cancel

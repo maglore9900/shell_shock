@@ -351,7 +351,7 @@ class MediaHandler:
             return 180  # Default 3 minutes
     
     def _load_index(self):
-        """Load the index from disk."""
+        """Load the index from disk or create it if it doesn't exist."""
         try:
             if os.path.exists(self.index_file):
                 with open(self.index_file, 'r') as f:
@@ -359,8 +359,15 @@ class MediaHandler:
                     self.media_index = data.get('index', {})
                     self.media_locations = data.get('locations', [])
                     self.last_update = data.get('last_update')
+            else:
+                # Initialize empty data structures
+                self.media_index = {}
+                self.last_update = None
+                # Create the file with empty data
+                self._save_index()
+                print(f"Created new index file: {self.index_file}")
         except Exception as e:
-            print(f"Error loading index: {e}")
+            print(f"Error loading/creating index: {e}")
             # Initialize empty if loading fails
             self.media_index = {}
             self.last_update = None
