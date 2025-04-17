@@ -78,9 +78,10 @@ class MediaHandler:
         return self.media_locations.copy()
     
     def update_media_index(self, force=False):
-        """Update the media index by scanning all registered locations.
+        """Update the media index by scanning provided file paths.
         
         Args:
+            file_paths (list): List of file path strings to process
             force (bool): Force complete rebuild even if not needed
             
         Returns:
@@ -94,33 +95,33 @@ class MediaHandler:
         # Track invalid entries to remove
         to_remove = set(self.media_index.keys())
         
-        # Scan each location
-        for directory in self.media_locations:
-            files = self.load_media_from_directory(directory, recursive=True)
-            print(f"Found: {len(files)}")
-            for file_path in files:
-                print(f"Indexing: {file_path}")
-                # Create or update file entry
-                filename = os.path.basename(file_path)
+        # Process each file path in the list
+        for file_path in self.media_index:
+            print(f"Indexing: {file_path}")
+            # Create or update file entry
+            filename = os.path.basename(file_path)
+            
+            # Get the directory from the file path
+            directory = os.path.dirname(file_path)
+            
+            # If file already in index, mark as still valid
+            if file_path in to_remove:
+                to_remove.remove(file_path)
+            
+            # Get file metadata if not already indexed
+            if file_path not in self.media_index:
+                # Create basic metadata
+                duration = self.get_track_duration(file_path)
                 
-                # If file already in index, mark as still valid
-                if file_path in to_remove:
-                    to_remove.remove(file_path)
-                
-                # Get file metadata if not already indexed
-                if file_path not in self.media_index:
-                    # Create basic metadata
-                    duration = self.get_track_duration(file_path)
-                    
-                    self.media_index[file_path] = {
-                        'filename': filename,
-                        'path': file_path,
-                        'directory': directory,
-                        'duration': duration,
-                        'last_played': None,
-                        'play_count': 0,
-                        'added_on': datetime.now().isoformat()
-                    }
+                self.media_index[file_path] = {
+                    'filename': filename,
+                    'path': file_path,
+                    'directory': directory,
+                    'duration': duration,
+                    'last_played': None,
+                    'play_count': 0,
+                    'added_on': datetime.now().isoformat()
+                }
         
         # Remove files that no longer exist
         for file_path in to_remove:
