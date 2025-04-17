@@ -18,8 +18,6 @@ class PluginManager:
             'auto_load_plugins': True,  # Default to not auto-loading plugins
             'enabled_plugins': []  # List of enabled plugin names
         }
-        
-        
         # Load settings if the file exists
         self.load_settings()
     
