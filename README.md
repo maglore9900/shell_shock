@@ -93,11 +93,14 @@ More to come.
 
 TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has already been written. You will just need to understand the minimum required functionality to write your own.
 
-Writing your own plugin info [here](./docs/plugins.md) and plugin template [here](./docs/template_plugin.py).
-
 ### Configuring existing plugins
 
 1) Setup the spotify plugin, instructions [here](./docs/spotify_app.md).
+
+### Creating your own plugins
+
+Writing your own plugin info [here](./docs/plugins.md). 
+plugin template [here](./docs/template_plugin.py).
 
 ## ToDo
 
