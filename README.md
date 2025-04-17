@@ -95,9 +95,17 @@ TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has alr
 
 ### Configuring existing plugins
 
-1) Spotify plugin, instructions [here](./docs/spotify_app.md).
-2) Youtube plugin, basically works as is. You can change the command from the default `youtube` to anything you want by setting `YOUTUBE_CMD=` whatever you want in the `.env` file.
-3) Podcast plugin, basically works as is. You can change the command from the default `podcast` to anything you want by setting `PODCAST_CMD=` whatever you want in the `.env` file. You can also set the podcast you want to listen to in the `.env`. Right now it only supports one, WIP.
+#### Spotify plugin,
+
+Instructions [here](./docs/spotify_app.md).
+
+#### Youtube plugin
+
+Basically works as is. You can change the command from the default `youtube` to anything you want by setting `YOUTUBE_CMD=` to whatever you want in the `.env` file.
+
+#### Podcast plugin
+
+Basically works as is. You can change the command from the default `podcast` to anything you want by setting `PODCAST_CMD=` to whatever you want in the `.env` file. You can also set the podcast you want to listen to in the `.env`. Right now it only supports one, WIP.
 
 ### Creating your own plugins
 
