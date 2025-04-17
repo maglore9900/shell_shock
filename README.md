@@ -99,8 +99,8 @@ TLDR; plugins inherit from a basePlugin class, most of the heavy lifting has alr
 
 ### Creating your own plugins
 
-Writing your own plugin info [here](./docs/plugins.md). 
-plugin template [here](./docs/template_plugin.py).
+Writing your own plugin info [here](./docs/plugins.md).
+Plugin template [here](./docs/template_plugin.py).
 
 ## ToDo
 
