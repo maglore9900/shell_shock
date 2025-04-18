@@ -15,7 +15,7 @@ class PluginManager:
         self.active_plugin = None  # Currently active plugin
         self.settings_file = settings_file
         self.settings = {
-            'auto_load_plugins': True,  # Default to not auto-loading plugins
+            'auto_load_plugins': True,  
             'enabled_plugins': []  # List of enabled plugin names
         }
         # Load settings if the file exists
