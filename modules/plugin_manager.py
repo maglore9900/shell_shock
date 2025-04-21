@@ -3,6 +3,7 @@ import os
 import importlib.util
 import json
 from modules.logging_utils import log_function_call
+from datetime import datetime
 
 class PluginManager:
     """Manages all plugins and their states"""
@@ -20,6 +21,7 @@ class PluginManager:
         }
         # Load settings if the file exists
         self.load_settings()
+        self.get_info_time: datetime = None
     
     def load_settings(self):
         """Load plugin settings from file"""
@@ -228,8 +230,11 @@ class PluginManager:
     
     def get_playback_info(self):
         """Get current playback information"""
-        # If an external plugin is active, try to get updated info
-        if self.active_plugin != 'local' and self.active_plugin in self.plugins:
+        # If an external plugin is active, try to get updated info        
+        current_info = self.player.playback_info.copy()
+        if self.active_plugin != 'local' and self.active_plugin in self.plugins and current_info['state'] == 'PLAYING':
+            if self.get_info_time and (datetime.now() - self.get_info_time).total_seconds() < 5:
+                return self.player.playback_info
             plugin = self.plugins[self.active_plugin]['instance']
             if hasattr(plugin, 'get_current_playback'):
                 try:
@@ -244,6 +249,8 @@ class PluginManager:
                             'duration': plugin_info.get('duration_ms', 0) / 1000.0 if 'duration_ms' in plugin_info else plugin_info.get('duration', 0),
                             'state': 'PLAYING' if plugin_info.get('is_playing', False) else 'PAUSED'
                         })
+                    if self.get_info_time is None:
+                        self.get_info_time = datetime.now()
                 except Exception as e:
                     print(f"Error getting playback info from plugin {self.active_plugin}: {e}")
         
