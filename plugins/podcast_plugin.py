@@ -38,7 +38,7 @@ class Plugin(BasePlugin):
         self.track_start_time = 0
         
         # Try to load default feed if provided in environment
-        default_feed = player.env("DEFAULT_PODCAST_FEED", default=None)
+        default_feed = player.env("DEFAULT_PODCAST_FEEDS", default=None)
         if default_feed:
             self.add([default_feed])
             
