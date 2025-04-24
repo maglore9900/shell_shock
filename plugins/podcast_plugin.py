@@ -20,12 +20,15 @@ class Plugin(BasePlugin):
         self.paginate_commands = ['search', 'list', 'feeds']
         
         # Initialize feeds and episodes storage
-        self.feeds = {}
+        self.feeds_list = {}
         self.current_feed_url = None
         self.current_episodes = []
         self.current_episode = None
         self.current_episode_index = None
         self.download_dir = player.env("PODCAST_DOWNLOAD_DIR", default="podcast_downloads")
+        # Ensure download_dir is not empty, use default if it is
+        if not self.download_dir:
+            self.download_dir = "podcast_downloads"
         
         # For temporary file management
         self.temp_dir = tempfile.mkdtemp()
@@ -37,10 +40,14 @@ class Plugin(BasePlugin):
         # For tracking playback
         self.track_start_time = 0
         
-        # Try to load default feed if provided in environment
-        default_feed = player.env("DEFAULT_PODCAST_FEEDS", default=None)
-        if default_feed:
-            self.add([default_feed])
+        # Try to load default feeds if provided in environment
+        default_feeds = player.env("DEFAULT_PODCAST_FEEDS", default=None)
+        if default_feeds:
+            # Split by comma and process each feed URL
+            feed_urls = [url.strip() for url in default_feeds.split(",")]
+            for feed_url in feed_urls:
+                if feed_url:  # Skip empty entries
+                    self.add([feed_url])
             
         self.initialized = True
     
@@ -224,14 +231,15 @@ Available Podcast commands:
             feed_title = title_elem.text if title_elem is not None else "Unknown Podcast"
             
             # Store feed in our list
-            self.feeds[feed_url] = {
+            self.feeds_list[feed_url] = {
                 'title': feed_title,
                 'url': feed_url
             }
             
-            # Set as current feed
-            self.current_feed_url = feed_url
-            self._refresh_current_feed()
+            # Set as current feed if we don't have one already
+            if self.current_feed_url is None:
+                self.current_feed_url = feed_url
+                self._refresh_current_feed()
             
             print(f"Added podcast feed: {feed_title}")
             return True
@@ -295,7 +303,7 @@ Available Podcast commands:
                         'pub_date': pub_date,
                         'description': description,
                         'feed_url': self.current_feed_url,
-                        'feed_title': self.feeds[self.current_feed_url]['title'],
+                        'feed_title': self.feeds_list[self.current_feed_url]['title'],
                         'duration': duration
                     })
             
@@ -339,9 +347,9 @@ Available Podcast commands:
                 return []
         
         # If feed name is specified, try to switch to it
-        if args and args[0] in [feed['title'] for feed in self.feeds.values()]:
+        if args and args[0] in [feed['title'] for feed in self.feeds_list.values()]:
             feed_title = args[0]
-            for url, info in self.feeds.items():
+            for url, info in self.feeds_list.items():
                 if info['title'] == feed_title:
                     self.current_feed_url = url
                     self._refresh_current_feed()
@@ -364,12 +372,12 @@ Available Podcast commands:
     
     def feeds(self, args):
         """List all added podcast feeds"""
-        if not self.feeds:
+        if not self.feeds_list:
             print("No podcast feeds added. Use 'podcast add <url>' to add a feed.")
             return []
             
         display_items = []
-        for i, (url, info) in enumerate(self.feeds.items()):
+        for i, (url, info) in enumerate(self.feeds_list.items()):
             is_current = url == self.current_feed_url
             # Format: (display_text, feed_url, metadata)
             display_items.append((
@@ -392,8 +400,8 @@ Available Podcast commands:
         # If numeric index, get the feed URL from our list
         if args[0].isdigit():
             index = int(args[0])
-            if index < len(self.feeds):
-                feed_url = list(self.feeds.keys())[index]
+            if index < len(self.feeds_list):
+                feed_url = list(self.feeds_list.keys())[index]
             else:
                 print(f"Invalid feed index: {index}")
                 return False
@@ -402,13 +410,13 @@ Available Podcast commands:
             feed_url = args[0]
             
             # Check if it's a name instead of URL
-            for url, info in self.feeds.items():
+            for url, info in self.feeds_list.items():
                 if info['title'] == feed_url:
                     feed_url = url
                     break
         
         # Make sure we have this feed
-        if feed_url not in self.feeds:
+        if feed_url not in self.feeds_list:
             print(f"Feed not found: {feed_url}")
             print("Use 'podcast add <url>' to add it first.")
             return False
@@ -417,7 +425,7 @@ Available Podcast commands:
         self.current_feed_url = feed_url
         self._refresh_current_feed()
         
-        print(f"Switched to feed: {self.feeds[feed_url]['title']}")
+        print(f"Switched to feed: {self.feeds_list[feed_url]['title']}")
         return True
     
     def download(self, args):
