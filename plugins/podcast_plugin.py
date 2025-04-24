@@ -148,7 +148,7 @@ Available Podcast commands:
         self.player.plugin_manager.ensure_exclusive_playback('podcast')
         
         # Get the episode
-        episode = self.current_episodes[episode_index]
+        episode = list(reversed(self.current_episodes))[episode_index]
         self.current_episode = episode
         self.current_episode_index = episode_index
         
