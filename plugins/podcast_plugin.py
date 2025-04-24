@@ -98,8 +98,9 @@ Available Podcast commands:
             display_text, episode_index, metadata = args[0]
             return self._play_episode(episode_index)
         
-        print(f"Invalid arguments for play command: {type(args)}, {args}")
-        return False
+        return self._play_episode(0)  # Default to first episode if no valid args
+        # print(f"Invalid arguments for play command: {type(args)}, {args}")
+        # return False
     
     def _pause_impl(self, args):
         """Pause playback"""
