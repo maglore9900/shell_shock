@@ -149,29 +149,16 @@ Available Podcast commands:
         
         # Get the episode
         episode = list(reversed(self.current_episodes))[episode_index]
+        print(f"episode {episode}")
         self.current_episode = episode
         self.current_episode_index = episode_index
-        
-        # Clean up any previous temp file
-        self.cleanup_temp_file()  # Use BasePlugin's helper method
+
+        filename = "".join(c if c.isalnum() or c in ' -_' else '_' for c in episode['title'])
+        filename = filename.replace(' ', '_') + '.mp3'
         
         try:
-            # Check if we have a downloaded local file
-            if 'local_file' in episode and os.path.exists(episode['local_file']):
-                file_path = episode['local_file']
-                print(f"Playing downloaded episode: {episode['title']}")
-            else:
-                # For streaming, we need to download to a temp file first
-                print(f"Streaming episode: {episode['title']}")
-                print("Downloading episode for playback...")
-                
-                # Create temp file with appropriate extension
-                self.current_temp_file = os.path.join(self.temp_dir, f"temp_episode_{int(time.time())}.mp3")
-                
-                # Download the file
-                urllib.request.urlretrieve(episode['url'], self.current_temp_file)
-                file_path = self.current_temp_file
-            
+            file_path = self.download(episode['url'], filename, self.download_dir)
+            print(f"file_path {file_path}")
             # Get duration if not already available
             if episode['duration'] == 0:
                 try:
@@ -180,8 +167,18 @@ Available Podcast commands:
                     episode['duration'] = duration
                 except Exception as e:
                     print(f"Warning: Could not get duration: {e}")
-            
-            # Use the BasePlugin's helper method to play the file
+            else:
+                duration = episode['duration']
+
+            # self.current_episode = {
+            #     'title': episode['title'],
+            #     'author': self.current_feed_url['title'],
+            #     'url': episode['url'],
+            #     'duration': duration,
+            #     # 'local_file': temp_filepath
+            # }
+            # print(self.current_episode)
+
             success, temp_file = self.play_audio_file(file_path)
             if not success:
                 print(f"Error playing podcast episode: {episode['title']}")
@@ -429,53 +426,53 @@ Available Podcast commands:
         print(f"Switched to feed: {self.feeds_list[feed_url]['title']}")
         return True
     
-    def download(self, args):
-        """Download an episode by index"""
-        if not args or not args[0].isdigit():
-            print("Usage: podcast download <episode_index>")
-            return False
+    # def download(self, args):
+    #     """Download an episode by index"""
+    #     if not args or not args[0].isdigit():
+    #         print("Usage: podcast download <episode_index>")
+    #         return False
             
-        if not self.current_episodes:
-            print("No episodes loaded. Use 'podcast list' first.")
-            return False
+    #     if not self.current_episodes:
+    #         print("No episodes loaded. Use 'podcast list' first.")
+    #         return False
             
-        episode_index = int(args[0])
-        if episode_index < 0 or episode_index >= len(self.current_episodes):
-            print(f"Invalid episode index. Must be between 0 and {len(self.current_episodes)-1}")
-            return False
+    #     episode_index = int(args[0])
+    #     if episode_index < 0 or episode_index >= len(self.current_episodes):
+    #         print(f"Invalid episode index. Must be between 0 and {len(self.current_episodes)-1}")
+    #         return False
             
-        episode = self.current_episodes[episode_index]
+    #     episode = self.current_episodes[episode_index]
         
-        # Create a valid filename from the episode title
-        filename = "".join(c if c.isalnum() or c in ' -_' else '_' for c in episode['title'])
-        filename = filename.replace(' ', '_') + '.mp3'
-        filepath = os.path.join(self.download_dir, filename)
+    #     # Create a valid filename from the episode title
+    #     filename = "".join(c if c.isalnum() or c in ' -_' else '_' for c in episode['title'])
+    #     filename = filename.replace(' ', '_') + '.mp3'
+    #     filepath = os.path.join(self.download_dir, filename)
         
-        print(f"Downloading '{episode['title']}' to {filepath}")
-        try:
-            urllib.request.urlretrieve(episode['url'], filepath)
-            print(f"Download complete: {filepath}")
+    #     print(f"Downloading '{episode['title']}' to {filepath}")
+    #     try:
+    #         urllib.request.urlretrieve(episode['url'], filepath)
+    #         print(f"Download complete: {filepath}")
             
-            # Update episode to include local file path
-            episode['local_file'] = filepath
-            self.current_episodes[episode_index] = episode
+    #         # Update episode to include local file path
+    #         episode['local_file'] = filepath
+    #         self.current_episodes[episode_index] = episode
             
-            return filepath
-        except Exception as e:
-            print(f"Error downloading episode: {e}")
-            return False
+    #         return filepath
+    #     except Exception as e:
+    #         print(f"Error downloading episode: {e}")
+    #         return False
     
-    def search(self, args):
-        """Search episodes in current feed"""
-        if not args:
-            print("Usage: podcast search <search_term>")
-            return []
+    # def search(self, args):
+    #     """Search episodes in current feed"""
+    #     if not args:
+    #         print("Usage: podcast search <search_term>")
+    #         return []
             
-        if not self.current_episodes:
-            print("No episodes loaded. Use 'podcast list' first.")
-            return []
+    #     if not self.current_episodes:
+    #         print("No episodes loaded. Use 'podcast list' first.")
+    #         return []
             
-        search_term = " ".join(args).lower()
+    #     search_term = " ".join(args).lower()
         
         # Search in titles and descriptions
         matches = []

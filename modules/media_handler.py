@@ -6,6 +6,7 @@ import json
 import time
 import random
 import ffmpeg
+import urllib.request
 from pathlib import Path
 from datetime import datetime
 from pydub import AudioSegment
@@ -542,3 +543,14 @@ class MediaHandler:
                 print(f"Error removing temp file: {e}")
                 return False
         return True  # No file to clean up
+    
+    def download_media_file(self, url, file_name, download_dir=None):
+        if not download_dir:
+            download_dir=self.temp_dir 
+        try:
+            file_path = os.path.join(download_dir, file_name)
+            if not os.path.exists(file_path):
+                urllib.request.urlretrieve(url, file_path)
+            return file_path
+        except Exception as e:
+            print(f"Error downloading {file_name}: {e}")
