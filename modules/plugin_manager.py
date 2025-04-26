@@ -4,6 +4,7 @@ import importlib.util
 import json
 from modules.logging_utils import log_function_call
 from datetime import datetime
+import pygame
 
 class PluginManager:
     """Manages all plugins and their states"""

@@ -24,6 +24,7 @@ class Plugin(BasePlugin):
         self.current_feed_url = None
         self.current_episodes = []
         self.current_episode = None
+        self.current_position = 0.0
         self.current_episode_index = None
         self.download_dir = player.env("PODCAST_DOWNLOAD_DIR", default="podcast_downloads")
         # Ensure download_dir is not empty, use default if it is
@@ -149,7 +150,6 @@ Available Podcast commands:
         
         # Get the episode
         episode = list(reversed(self.current_episodes))[episode_index]
-        print(f"episode {episode}")
         self.current_episode = episode
         self.current_episode_index = episode_index
 
@@ -158,27 +158,6 @@ Available Podcast commands:
         
         try:
             file_path = self.download(episode['url'], filename, self.download_dir)
-            print(f"file_path {file_path}")
-            # Get duration if not already available
-            if episode['duration'] == 0:
-                try:
-                    # Use media handler to get duration
-                    duration = self.player.media_handler.get_track_duration(file_path)
-                    episode['duration'] = duration
-                except Exception as e:
-                    print(f"Warning: Could not get duration: {e}")
-            else:
-                duration = episode['duration']
-
-            # self.current_episode = {
-            #     'title': episode['title'],
-            #     'author': self.current_feed_url['title'],
-            #     'url': episode['url'],
-            #     'duration': duration,
-            #     # 'local_file': temp_filepath
-            # }
-            # print(self.current_episode)
-
             success, temp_file = self.play_audio_file(file_path)
             if not success:
                 print(f"Error playing podcast episode: {episode['title']}")
@@ -475,26 +454,26 @@ Available Podcast commands:
     #     search_term = " ".join(args).lower()
         
         # Search in titles and descriptions
-        matches = []
-        for i, episode in enumerate(self.current_episodes):
-            title = episode['title'].lower()
-            description = episode['description'].lower()
+        # matches = []
+        # for i, episode in enumerate(self.current_episodes):
+        #     title = episode['title'].lower()
+        #     description = episode['description'].lower()
             
-            if search_term in title or search_term in description:
-                # Format: (display_text, episode_index, metadata)
-                matches.append((
-                    f"{episode['title']} ({episode['pub_date']})",
-                    i,
-                    {
-                        'url': episode['url'],
-                        'title': episode['title']
-                    }
-                ))
+        #     if search_term in title or search_term in description:
+        #         # Format: (display_text, episode_index, metadata)
+        #         matches.append((
+        #             f"{episode['title']} ({episode['pub_date']})",
+        #             i,
+        #             {
+        #                 'url': episode['url'],
+        #                 'title': episode['title']
+        #             }
+        #         ))
         
-        if not matches:
-            print(f"No episodes found matching '{search_term}'")
+        # if not matches:
+        #     print(f"No episodes found matching '{search_term}'")
             
-        return matches
+        # return matches
 
     def resume(self, args):
         """Resume playback"""
