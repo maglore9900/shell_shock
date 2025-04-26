@@ -92,8 +92,7 @@ class BasePlugin(ABC, Generic[T]):
     # Standard media player controls - to be implemented by subclasses
     def play(self, args):
         """
-        Standard play command implementation.
-        This should be overridden by subclasses to implement specific play logic.
+        Overarching play command used by cli to call actions to plugins
         """
         try:
             if not self._can_play():
@@ -333,7 +332,7 @@ class BasePlugin(ABC, Generic[T]):
             # Update the plugin manager with our standardized info
             self.player.plugin_manager.update_playback_info(standardized_info)
 
-    def play_audio_file(self, file_path, start_pos=0.0, loops=0):
+    def play_audio_file(self, file_path, loops=0):
         """
         Helper method to play an audio file using the media handler.
         Useful for plugins that need to play local audio files.
@@ -348,7 +347,7 @@ class BasePlugin(ABC, Generic[T]):
         """
         # Set this plugin as active before playing
         self.set_as_active()
-        
+        start_pos = self.paused_position if self.paused_position and self.paused_position > 0 else 0.0
         # Use media handler to play the file
         success, temp_file = self.player.media_handler.play_audio(file_path, start_pos, loops)
         
