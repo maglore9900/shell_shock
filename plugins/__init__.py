@@ -462,3 +462,8 @@ class BasePlugin(ABC, Generic[T]):
     def _set_volume_impl(self, volume):
         """Default implementation for volume control."""
         return self.set_audio_volume(volume / 100.0) 
+    
+    def download(self, url, file_name, download_dir):
+        """Wrapper for media_handler function to pass to plugins"""
+        file_path = self.player.media_handler.download_media_file(url, file_name, download_dir)
+        return file_path
