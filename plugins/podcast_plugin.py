@@ -10,6 +10,8 @@ from pydub import AudioSegment
 from plugins import BasePlugin
 import pygame
 
+
+
 class Plugin(BasePlugin):
     """Podcast integration plugin"""
     
@@ -347,6 +349,7 @@ Available Podcast commands:
                 
         return display_items
     
+    @BasePlugin.sub_list_function_call("list")
     def feeds(self, args):
         """List all added podcast feeds"""
         if not self.feeds_list:

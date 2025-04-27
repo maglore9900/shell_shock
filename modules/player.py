@@ -138,12 +138,7 @@ class MusicPlayer:
                 if self.state == PlayerState.PLAYING and not pygame.mixer.music.get_busy():
                     # Track finished playing
                     self.state = PlayerState.STOPPED
-                    
-                    # Make sure plugin manager is updated
-                    self.self.plugin_manager({
-                        'state': 'STOPPED',
-                        'source': 'local'
-                    })
+
                     
                     # Auto-play next track
                     if self.playlist and len(self.playlist) > 0:

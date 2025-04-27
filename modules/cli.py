@@ -77,6 +77,7 @@ class MusicPlayerCLI:
         Returns:
             Selected item or None if canceled
         """
+        logger.info(f"plugin {plugin}, play_callback {play_callback}")
         plugin_display_name = plugin.name if hasattr(plugin, 'name') else command_name
         return self.get_paginated_selection(
             items=results,
@@ -98,53 +99,59 @@ class MusicPlayerCLI:
         subcmd = args[0].lower()
         subcmd_args = args[1:] if len(args) > 1 else []
         
-        # Check if this is a playback command that might need to pause current playback
-        if subcmd in ['play', 'play_track', 'play_album', 'play_playlist']:
-            # Pause any currently playing source
-            current_active = self.player.plugin_manager.get_active_plugin()
-            current_playback = self.player.plugin_manager.get_playback_info()
-            
-            if current_playback['state'] == 'PLAYING':
-                # Pause the currently active playback before starting new playback
-                self.player.pause()
         
         # Try to call the matching method on the plugin
         if hasattr(plugin, subcmd):
             try:
                 method = getattr(plugin, subcmd)
                 result = method(subcmd_args)
-                
                 # Check if the result is a list/dict that should be paginated
                 if hasattr(plugin, 'paginate_commands') and subcmd in plugin.paginate_commands:
                     # Define play callback based on the command type
                     play_callback = None
-                    
-                    # Different handling for different command types
-                    if subcmd == 'search' and hasattr(plugin, 'play_track'):
-                        # For search results, use play_track
-                        play_callback = lambda item: plugin.play_track(item)
-                    elif subcmd == 'playlists' and hasattr(plugin, 'play_playlist'):
-                        # For playlists, use play_playlist
-                        play_callback = lambda item: plugin.play_playlist(item)
-                    elif subcmd == 'albums' and hasattr(plugin, 'play_album'):
-                        # For albums, use play_album if it exists
-                        play_callback = lambda item: plugin.play_album(item)
-                    elif hasattr(plugin, 'play'):
-                        # Generic fallback
-                        def generic_play(item):
-                            if isinstance(item, (tuple, list)) and len(item) > 1:
-                                return plugin.play([item[1]])  # Assume second element is ID
-                            return False
-                        play_callback = generic_play
+                    method = getattr(plugin, subcmd)
+                    if hasattr(method, 'list') and hasattr(method, 'value'):
+                        target_method = method.value  # Store the target method name (e.g., "list")
+                        # Create a more comprehensive callback function
+                        def complete_callback(item):
+                            # First call the target method to get results
+                            result = getattr(plugin, target_method)(item)
+                            if result and isinstance(result, (list, dict)):
+                                # Now call the pagination function on the result
+                                return self.plugin_paginated_results(plugin, target_method, result, 
+                                    lambda subitem: plugin.play(subitem))
+                            return result
+                        play_callback = complete_callback
+                    # # Different handling for different command types
+                    # elif subcmd == 'search' and hasattr(plugin, 'play_track'):
+                    #     # For search results, use play_track
+                    #     logger.info("play track")
+                    #     play_callback = lambda item: plugin.play_track(item)
+                    # elif subcmd == 'playlists' and hasattr(plugin, 'play_playlist'):
+                    #     # For playlists, use play_playlist
+                    #     logger.info("play playlist")
+                    #     play_callback = lambda item: plugin.play_playlist(item)
+                    # elif subcmd == 'albums' and hasattr(plugin, 'play_album'):
+                    #     # For albums, use play_album if it exists
+                    #     logger.info("play album")
+                    #     play_callback = lambda item: plugin.play_album(item)
+                    # elif hasattr(plugin, 'play'):
+                    #     logger.info("play")
+                    #     # Generic fallback
+                    #     def generic_play(item):
+                    #         if isinstance(item, (tuple, list)) and len(item) > 1:
+                    #             return plugin.play([item[1]])  # Assume second element is ID
+                    #         return False
+                    #     play_callback = generic_play
                     
                     # Define custom actions if needed
-                    custom_actions = {}
-                    if subcmd == 'playlists' and hasattr(plugin, 'load'):
-                        custom_actions['l'] = ('Load playlist', 
-                                            lambda: plugin.load([result[self.paginate_cursor_position][1]]))
+                    # custom_actions = {}
+                    # if subcmd == 'playlists' and hasattr(plugin, 'load'):
+                    #     custom_actions['l'] = ('Load playlist', 
+                    #                         lambda: plugin.load([result[self.paginate_cursor_position][1]]))
                     
                     # Display paginated results
-                    self.plugin_paginated_results(plugin, subcmd, result, play_callback, custom_actions)
+                    self.plugin_paginated_results(plugin, subcmd, result, play_callback)
                     return
                 
                 # Set the plugin as active for playback-related commands
