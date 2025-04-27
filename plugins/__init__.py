@@ -21,6 +21,32 @@ class BasePlugin(ABC, Generic[T]):
     Plugin developers must inherit from this class and implement
     required methods while optional methods can be overridden as needed.
     """
+
+    @staticmethod
+    def sub_list_function_call(value=None):
+        """
+        Decorator that adds a 'list' attribute and an optional value attribute.
+        Can be used as @list_attribute or @list_attribute("value").
+        """
+        def decorator(func):
+            # Set the primary 'list' attribute
+            func.list = True
+            
+            # Add the value attribute if provided
+            if value is not None:
+                func.value = value
+            
+            return func
+        
+        # Handle both @list_attribute and @list_attribute("value")
+        if callable(value):
+            # Called as @list_attribute without parentheses
+            func = value
+            func.list = True
+            return func
+        else:
+            # Called as @list_attribute("value") with a string argument
+            return decorator
     
     def __init__(self, player):
         """Initialize with a reference to the main player"""
