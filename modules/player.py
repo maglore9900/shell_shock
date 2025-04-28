@@ -29,8 +29,7 @@ def clear_screen():
 clear_screen()
 
 class MusicPlayer:
-    """Core music player functionality"""
-    
+    """Core music player functionality"""        
     def __init__(self, env):
         """Initialize the music player"""
         self.MUSIC_LIBRARY_PATH = env("MUSIC_LIBRARY_PATH", default=None)
