@@ -49,15 +49,8 @@ class MusicPlayerCLI:
         """Add commands for each plugin"""
         # Use the plugin manager to get command names
         command_names = self.player.plugin_manager.get_plugin_command_names()
-        
         for plugin_name, command_name in command_names.items():
             plugin = self.player.plugins[plugin_name]['instance']
-            
-            # Share pagination utilities with plugins that want it
-            if hasattr(plugin, 'paginate_commands'):
-                # No need to attach the paginate_items method anymore
-                # The plugin will call our method directly
-                pass
             
             # Register the command
             self.commands[command_name] = lambda args, plugin=plugin, name=plugin_name: self.plugin_command(plugin, name, args)
@@ -77,7 +70,6 @@ class MusicPlayerCLI:
         Returns:
             Selected item or None if canceled
         """
-        logger.info(f"plugin {plugin}, play_callback {play_callback}")
         plugin_display_name = plugin.name if hasattr(plugin, 'name') else command_name
         return self.get_paginated_selection(
             items=results,
@@ -135,14 +127,14 @@ class MusicPlayerCLI:
                     #     # For albums, use play_album if it exists
                     #     logger.info("play album")
                     #     play_callback = lambda item: plugin.play_album(item)
-                    # elif hasattr(plugin, 'play'):
-                    #     logger.info("play")
-                    #     # Generic fallback
-                    #     def generic_play(item):
-                    #         if isinstance(item, (tuple, list)) and len(item) > 1:
-                    #             return plugin.play([item[1]])  # Assume second element is ID
-                    #         return False
-                    #     play_callback = generic_play
+                    elif hasattr(plugin, 'play'):
+                        logger.info("play")
+                        # Generic fallback
+                        def generic_play(item):
+                            if isinstance(item, (tuple, list)) and len(item) > 1:
+                                return plugin.play([item[1]])  # Assume second element is ID
+                            return False
+                        play_callback = generic_play
                     
                     # Define custom actions if needed
                     # custom_actions = {}

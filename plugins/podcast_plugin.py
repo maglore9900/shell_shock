@@ -2,19 +2,11 @@
 import requests
 import xml.etree.ElementTree as ET
 import os
-import urllib.request
-from urllib.parse import urlparse
-import time
 import tempfile
-from pydub import AudioSegment
 from plugins import BasePlugin
-import pygame
-
-
 
 class Plugin(BasePlugin):
     """Podcast integration plugin"""
-    
     def __init__(self, player):
         super().__init__(player)
         self.name = "Podcast"
