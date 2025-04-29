@@ -1062,7 +1062,8 @@ class MusicPlayerCLI:
         else:
             return items[result]
             
-    def paginate_items(self, items, page_size=20, header=None, footer=None, item_formatter=None, current_index=None):
+    def paginate_items(self, items, page_size=20, header=None, footer=None, item_formatter=None, 
+                  current_index=None, play_callback=None, custom_actions=None, title=None):
         """
         Display items with pagination and handle user interaction using arrow keys.
         
@@ -1073,17 +1074,26 @@ class MusicPlayerCLI:
             footer: Function that takes page number and total pages to display footer
             item_formatter: Function that takes (index, item, is_current, is_selected) and returns formatted string
             current_index: Index of current item (for highlighting)
+            play_callback: Function to call when an item is selected (receives selected item)
+            custom_actions: Dictionary of key -> (display_name, function) for special keys
+            title: Title to display at the top of the pagination
         
         Returns:
-            Selected index or None if canceled
+            Selected item or None if canceled
         """        
         if not items:
             print("No items to display")
             return None
         
+        # Initialize custom_actions if None
+        if custom_actions is None:
+            custom_actions = {}
+        
         # Default header function
         if header is None:
             def header(page, total_pages):
+                if title:
+                    print(f"\n{title}")
                 print(f"\nShowing page {page}/{total_pages} ({len(items)} items)")
         
         # Default footer function
@@ -1093,14 +1103,27 @@ class MusicPlayerCLI:
                 print("  → / ← - Next/Previous page")
                 print("  ↑ / ↓ - Move selector")
                 print("  Enter - Select item")
+                
+                # Add custom actions to footer
+                for key, (action_name, _) in custom_actions.items():
+                    print(f"  {key} - {action_name}")
+                    
                 print("  c - Cancel")
         
-        # Default item formatter
+        # Default item formatter - Check if items are tuples/lists (from plugins)
         if item_formatter is None:
             def item_formatter(i, item, is_current, is_selected):
                 current_marker = " *" if is_current else ""
                 selector = "→ " if is_selected else "  "
-                return f"{selector}{i}. {item}{current_marker}"
+                
+                # Check if this is a plugin result (tuple/list with title as first element)
+                if isinstance(item, (tuple, list)) and len(item) > 0:
+                    # Use only the title (first element) for display
+                    display_item = item[0]
+                else:
+                    display_item = item
+                    
+                return f"{selector}{i}. {display_item}{current_marker}"
         
         total_pages = (len(items) + page_size - 1) // page_size
         current_page = 1
@@ -1183,11 +1206,28 @@ class MusicPlayerCLI:
             elif key == readchar.key.ENTER:
                 # Calculate the absolute index in the items list
                 selected_index = start_idx + self.paginate_cursor_position
-                return selected_index
+                selected_item = items[selected_index]
+                
+                # Execute callback if provided
+                if play_callback:
+                    play_callback(selected_item)
+                
+                return selected_item
             
             # Handle cancel
             elif key.lower() == 'c':
                 return None
+            
+            # Handle custom actions
+            elif key.lower() in custom_actions:
+                action_name, action_func = custom_actions[key.lower()]
+                
+                # Execute the custom action
+                result = action_func()
+                
+                # If action returns something, return it
+                if result is not None:
+                    return result
             
             # Return special keys for command handling in caller functions
             elif key.lower() in ['a', 'l', 's', 'h']:
@@ -1196,6 +1236,29 @@ class MusicPlayerCLI:
             else:
                 # Ignore other keys
                 pass
+    
+    def get_paginated_selection(self, items, title=None, play_action=None, custom_actions=None):
+        """
+        Handle paginated selection for both native and plugin functions.
+        
+        Args:
+            items: List of items to display
+            title: Title to display at the top of the pagination
+            play_action: Function to call when an item is selected (receives selected item)
+            custom_actions: Dictionary of key -> (display_name, function) for special keys
+        
+        Returns:
+            Selected item or None if canceled
+        """
+        # Reset cursor position to 0 before starting pagination
+        self.paginate_cursor_position = 0
+        
+        return self.paginate_items(
+            items=items,
+            title=title,
+            play_callback=play_action,
+            custom_actions=custom_actions
+        )
                 
     def show_settings_menu(self, args):
         """Show and manage player settings."""
