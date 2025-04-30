@@ -125,7 +125,27 @@ class MusicPlayer:
         if self.media:
             self.user_playlists["Local Media"]["tracks"] = self.media
 
-        print(self.user_playlists)   
+        if self.media:
+            self.user_playlists["Local Media"] = {
+                "tracks": self.media,
+                "file": None  # This is an in-memory playlist
+            }
+            
+            # Automatically load Local Media as the active playlist
+            self.playlist = self.media.copy()
+            self.current_playlist_name = "Local Media"
+            
+            # Apply sorting if shuffle is enabled
+            if self.shuffle_mode:
+                # Store original playlist order
+                self.original_playlist_order = self.playlist.copy()
+                # Shuffle the playlist
+                random.shuffle(self.playlist)
+            
+            # Notify plugins
+            self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
+            
+            print(f"\nLoaded playlist: Local Media ({len(self.playlist)} tracks)")  
         
     def update_playback_info(self, info):
         """Update playback information"""
@@ -248,7 +268,6 @@ class MusicPlayer:
         # Print loading summary
         print(f"Loaded {len(self.media)} tracks from {directory}")
         
-    # Update the play method in player.py
     def play(self):
         """Start or resume playback."""
         # Before playing local, ensure exclusive playback
@@ -263,7 +282,7 @@ class MusicPlayer:
                 # Get track duration before playing
                 self.current_track_length = self.media_handler.get_track_duration(self.current_track)
                 
-                # Use new MediaHandler method to play
+                # Use MediaHandler method to play
                 success, temp_file = self.media_handler.play_audio(self.current_track)
                 if not success:
                     print(f"Cannot play {os.path.basename(self.current_track)}: format not supported")
@@ -272,36 +291,13 @@ class MusicPlayer:
                 self.track_start_time = time.time()
                 self.state = PlayerState.PLAYING
                 
-                # Update plugin manager with current playback info
+                # Update play stats and notify plugins
                 self.media_handler.update_play_stats(self.current_track)
-                
-                # Notify plugins
-                self._notify_plugins('on_play', {'track': self.current_track})
-            elif self.media and self.current_index < len(self.media):
-                self.current_track = self.media[self.current_index]
-                print(f"Playing track: {os.path.basename(self.current_track)}")
-                
-                # Get track duration before playing
-                self.current_track_length = self.media_handler.get_track_duration(self.current_track)
-                
-                # Use new MediaHandler method to play
-                success, temp_file = self.media_handler.play_audio(self.current_track)
-                if not success:
-                    print(f"Cannot play {os.path.basename(self.current_track)}: format not supported")
-                    return
-                
-                self.track_start_time = time.time()
-                self.state = PlayerState.PLAYING
-                
-                # Update plugin manager with current playback info
-                self.media_handler.update_play_stats(self.current_track)
-                
-                # Notify plugins
                 self._notify_plugins('on_play', {'track': self.current_track})
             else:
                 print("No tracks in playlist")
         elif self.state == PlayerState.PAUSED:
-            self.media_handler.resume_audio()  # Use new method
+            self.media_handler.resume_audio()
             self.state = PlayerState.PLAYING
             
             # Update playback state in plugin manager
