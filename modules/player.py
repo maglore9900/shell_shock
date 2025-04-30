@@ -144,8 +144,6 @@ class MusicPlayer:
             
             # Notify plugins
             self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
-            
-            print(f"\nLoaded playlist: Local Media ({len(self.playlist)} tracks)")  
         
     def update_playback_info(self, info):
         """Update playback information"""
