@@ -165,7 +165,10 @@ class MusicPlayer:
                     # Auto-play next track
                     if self.playlist and len(self.playlist) > 0:
                         # Move to next track
-                        self.current_index = (self.current_index + 1) % len(self.playlist)
+                        if self.shuffle_mode:
+                            self.current_index = (random.randint(0, len(self.playlist)) +1) % len(self.playlist)
+                        else:
+                            self.current_index = (self.current_index + 1) % len(self.playlist)
                         # Play it
                         self.current_track = self.playlist[self.current_index]
                         self.play()                
@@ -375,7 +378,10 @@ class MusicPlayer:
         # Local playback handling
         if self.playlist:
             self.stop()
-            self.current_index = (self.current_index + 1) % len(self.playlist)
+            if self.shuffle_mode:
+                self.current_index = (random.randint(0, len(self.playlist)) +1) % len(self.playlist)
+            else:
+                self.current_index = (self.current_index + 1) % len(self.playlist)
             self.play()
 
     def previous_track(self):
@@ -527,11 +533,11 @@ class MusicPlayer:
         self.current_playlist_name = playlist_name
         
         # Apply sorting if shuffle is enabled
-        if self.shuffle_mode:
-            # Store original playlist order
-            self.original_playlist_order = self.playlist.copy()
-            # Shuffle the playlist
-            random.shuffle(self.playlist)
+        # if self.shuffle_mode:
+        #     # Store original playlist order
+        #     self.original_playlist_order = self.playlist.copy()
+        #     # Shuffle the playlist
+        #     random.shuffle(self.playlist)
         
         # Notify plugins
         self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
@@ -557,14 +563,14 @@ class MusicPlayer:
         # If this is the current playlist, update it
         if result and self.current_playlist_name == playlist_name:
             # Add to the current playlist too
-            if self.shuffle_mode:
-                # Add to original order
-                self.original_playlist_order.append(track_path)
-                # Add to a random position in the current playlist
-                insert_idx = random.randint(0, len(self.playlist))
-                self.playlist.insert(insert_idx, track_path)
-            else:
-                self.playlist.append(track_path)
+            # if self.shuffle_mode:
+            #     # Add to original order
+            #     self.original_playlist_order.append(track_path)
+            #     # Add to a random position in the current playlist
+            #     insert_idx = random.randint(0, len(self.playlist))
+            #     self.playlist.insert(insert_idx, track_path)
+            # else:
+            self.playlist.append(track_path)
         
         return result
 
@@ -582,24 +588,24 @@ class MusicPlayer:
         
         # If this is the current playlist, update it
         if result and track and self.current_playlist_name == playlist_name:
-            if self.shuffle_mode:
-                # Remove from original order
-                try:
-                    self.original_playlist_order.remove(track)
-                except ValueError:
-                    pass
-                # Remove from current playlist
-                try:
-                    self.playlist.remove(track)
-                except ValueError:
-                    pass
-            else:
-                if track_index < self.current_index:
-                    self.current_index -= 1
-                elif track_index == self.current_index:
-                    # If removing current track, stop playback
-                    self.stop()
-                self.playlist.pop(track_index)
+            # if self.shuffle_mode:
+            #     # Remove from original order
+            #     try:
+            #         self.original_playlist_order.remove(track)
+            #     except ValueError:
+            #         pass
+            #     # Remove from current playlist
+            #     try:
+            #         self.playlist.remove(track)
+            #     except ValueError:
+            #         pass
+            # else:
+            if track_index < self.current_index:
+                self.current_index -= 1
+            elif track_index == self.current_index:
+                # If removing current track, stop playback
+                self.stop()
+            self.playlist.pop(track_index)
         
         return result
 
@@ -617,44 +623,44 @@ class MusicPlayer:
         """Toggle shuffle mode on/off."""
         self.shuffle_mode = not self.shuffle_mode
         
-        # Only affects local playback
-        if self.playlist:
-            if self.shuffle_mode:
-                # Store original playlist order if not already stored
-                if not self.original_playlist_order:
-                    self.original_playlist_order = self.playlist.copy()
+        # # Only affects local playback
+        # if self.playlist:
+        #     if self.shuffle_mode:
+        #         # Store original playlist order if not already stored
+        #         if not self.original_playlist_order:
+        #             self.original_playlist_order = self.playlist.copy()
                 
-                # Remember current track
-                current_track = self.playlist[self.current_index] if self.current_index < len(self.playlist) else None
+        #         # Remember current track
+        #         current_track = self.playlist[self.current_index] if self.current_index < len(self.playlist) else None
                 
-                # Shuffle the playlist
-                import random
-                random.shuffle(self.playlist)
+        #         # Shuffle the playlist
+        #         import random
+        #         random.shuffle(self.playlist)
                 
-                # Try to keep the current track as current
-                if current_track:
-                    try:
-                        self.current_index = self.playlist.index(current_track)
-                    except ValueError:
-                        # Current track not found in shuffled playlist
-                        self.current_index = 0
-            else:
-                # Restore original playlist order
-                if self.original_playlist_order:
-                    # Remember current track
-                    current_track = self.playlist[self.current_index] if self.current_index < len(self.playlist) else None
+        #         # Try to keep the current track as current
+        #         if current_track:
+        #             try:
+        #                 self.current_index = self.playlist.index(current_track)
+        #             except ValueError:
+        #                 # Current track not found in shuffled playlist
+        #                 self.current_index = 0
+        #     else:
+        #         # Restore original playlist order
+        #         if self.original_playlist_order:
+        #             # Remember current track
+        #             current_track = self.playlist[self.current_index] if self.current_index < len(self.playlist) else None
                     
-                    # Restore original order
-                    self.playlist = self.original_playlist_order.copy()
-                    self.original_playlist_order = []
+        #             # Restore original order
+        #             self.playlist = self.original_playlist_order.copy()
+        #             self.original_playlist_order = []
                     
-                    # Try to keep the current track as current
-                    if current_track:
-                        try:
-                            self.current_index = self.playlist.index(current_track)
-                        except ValueError:
-                            # Current track not found in original playlist
-                            self.current_index = 0
+        #             # Try to keep the current track as current
+        #             if current_track:
+        #                 try:
+        #                     self.current_index = self.playlist.index(current_track)
+        #                 except ValueError:
+        #                     # Current track not found in original playlist
+        #                     self.current_index = 0
         
         # Notify plugins about shuffle mode change
         self._notify_plugins('on_shuffle_change', {'shuffle': self.shuffle_mode})
@@ -677,10 +683,10 @@ class MusicPlayer:
             self.media_handler.update_media_index(force=True)
             print(f"Added library location: {directory}")
             
-            # Refresh the playlist
+            # # Refresh the playlist
             all_tracks = self.media_handler.get_all_indexed_tracks(
                 sort_method=self.DEFAULT_SORT.lower(),
-                shuffle=self.shuffle_mode
+                # shuffle=self.shuffle_mode
             )
             
             # Update playlist with new tracks
@@ -688,13 +694,13 @@ class MusicPlayer:
                 if track not in self.playlist:
                     self.playlist.append(track)
             
-            # Apply sorting if needed
-            if self.DEFAULT_SORT.lower() == 'name':
-                self.playlist.sort(key=lambda x: os.path.basename(x).lower())
-            elif self.DEFAULT_SORT.lower() == 'date':
-                self.playlist.sort(key=lambda x: os.path.getmtime(x))
-            elif self.shuffle_mode:
-                random.shuffle(self.playlist)
+            # # Apply sorting if needed
+            # if self.DEFAULT_SORT.lower() == 'name':
+            #     self.playlist.sort(key=lambda x: os.path.basename(x).lower())
+            # elif self.DEFAULT_SORT.lower() == 'date':
+            #     self.playlist.sort(key=lambda x: os.path.getmtime(x))
+            # elif self.shuffle_mode:
+            #     random.shuffle(self.playlist)
             
             # Notify plugins
             self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})

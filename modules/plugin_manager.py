@@ -319,9 +319,9 @@ class PluginManager:
                 # Get the player instance
                 if self.player:
                     # Pause local playback directly
-                    if self.player.state == PlayerState.PLAYING:
+                    if self.player.state == "PLAYING":
                         pygame.mixer.music.pause()
-                        self.player.state = PlayerState.PAUSED
+                        self.player.state = "PAUSED"
                         
                         # Update playback info
                         self.player.update_playback_info({'state': 'PAUSED'})

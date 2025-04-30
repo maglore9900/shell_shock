@@ -759,7 +759,8 @@ class MusicPlayerCLI:
                 
                 elif key in (readchar.key.LEFT, readchar.key.RIGHT):
                     if active_plugin == 'local':
-                        self.previous_track() if key == readchar.key.LEFT else self.next_track()
+                        args = ""
+                        self.previous_track(args) if key == readchar.key.LEFT else self.next_track(args)
                     else:
                         plugin = get_plugin_instance()
                         if plugin:

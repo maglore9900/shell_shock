@@ -147,15 +147,15 @@ class MediaHandler:
         # Get all tracks
         tracks = list(self.media_index.keys())
         
-        # Apply sorting
-        if shuffle or sort_method == 'random':
-            random.shuffle(tracks)
-        elif sort_method == 'name':
-            tracks.sort(key=lambda x: os.path.basename(x).lower())
-        elif sort_method == 'date':
-            # Sort by added_on date if available, otherwise modification time
-            tracks.sort(key=lambda x: self.media_index[x].get('added_on', 
-                                                             datetime.fromtimestamp(os.path.getmtime(x)).isoformat()))
+        # # Apply sorting
+        # if shuffle or sort_method == 'random':
+        #     random.shuffle(tracks)
+        # elif sort_method == 'name':
+        #     tracks.sort(key=lambda x: os.path.basename(x).lower())
+        # elif sort_method == 'date':
+        #     # Sort by added_on date if available, otherwise modification time
+        #     tracks.sort(key=lambda x: self.media_index[x].get('added_on', 
+        #                                                      datetime.fromtimestamp(os.path.getmtime(x)).isoformat()))
         
         return tracks
     
