@@ -30,8 +30,14 @@ class PlaylistHandler:
         Returns:
             dict: Loaded playlists mapping
         """
+
         # Clear existing playlists
-        self.playlists = {}
+        self.playlists = {
+            "Local Media": {
+            'tracks': [],  # Empty list to start with
+            'file': None
+            }
+        }
         
         # Scan for .txt files in the playlists directory
         playlist_files = [f for f in os.listdir(self.playlists_dir) if f.endswith('.txt')]

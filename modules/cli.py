@@ -10,6 +10,32 @@ from modules.logging_utils import log_function_call,  app_logger as logger
 class MusicPlayerCLI:
     """Command-line interface for the music player"""
     
+    @staticmethod
+    def sub_list_function_call(value=None):
+        """
+        Decorator that adds a 'list' attribute and an optional value attribute.
+        Can be used as @list_attribute or @list_attribute("value").
+        """
+        def decorator(func):
+            # Set the primary 'list' attribute
+            func.list = True
+            
+            # Add the value attribute if provided
+            if value is not None:
+                func.value = value
+            
+            return func
+        
+        # Handle both @list_attribute and @list_attribute("value")
+        if callable(value):
+            # Called as @list_attribute without parentheses
+            func = value
+            func.list = True
+            return func
+        else:
+            # Called as @list_attribute("value") with a string argument
+            return decorator
+        
     def __init__(self, player):
         """Initialize with a player instance"""
         self.player = player
@@ -28,8 +54,7 @@ class MusicPlayerCLI:
             'help': self.show_help,
             'exit': self.exit,
             'playlists': self.show_playlists,
-            'loadpl': self.load_user_playlist,
-            'showpl': self.show_playlist_contents,
+            # 'loadpl': self.load_user_playlist,
             'savepl': self.save_current_as_playlist,
             'shuffle': self.toggle_shuffle,
             'createpl': self.create_playlist,
@@ -246,53 +271,58 @@ class MusicPlayerCLI:
             print(f"{key}: {value}")
     
     def list_tracks(self, args):
-        """List all tracks in the playlist with pagination."""
-        if not self.player.media:
-            print("Local media is empty")
-            return
+        """
+        List all tracks in a playlist with pagination.
         
-        # Prepare display items
-        display_items = []
-        for i, track in enumerate(self.player.media):
-            display_items.append(track)
+        Usage: list [playlist_name]
+        If no playlist is specified, shows the currently loaded tracks.
+        """
+        tracks = None
+        playlist_name = None
         
-        # Custom formatter for track items
-        def item_formatter(i, item, is_current, is_selected):
-            current_marker = " *" if is_current else ""
-            selector = "→ " if is_selected else "  "
-            return f"{selector}{i}. {os.path.basename(item)}{current_marker}"
+        # Check if a specific playlist was requested
+        if args and args[0]:
+            playlist_name = args[0]
+            # Check if playlist exists
+            if playlist_name not in self.player.user_playlists:
+                print(f"Playlist not found: {playlist_name}")
+                print("Available playlists:")
+                for name in self.player.user_playlists:
+                    print(f"  {name}")
+                return
+            
+            # Get tracks from the specified playlist
+            tracks = self.player.user_playlists[playlist_name]['tracks']
+            if not tracks:
+                print(f"Playlist '{playlist_name}' is empty")
+                return
+        else:
+            # Use current media/playlist
+            tracks = self.player.media
+            if not tracks:
+                print("Current playlist is empty")
+                return
         
-        # Custom footer with list-specific options
-        def footer(page, total_pages):
-            print(f"\nPage {page}/{total_pages} - Options:")
-            print("  → / ← - Next/Previous page")
-            print("  ↑ / ↓ - Move selector")
-            print("  Enter - Play selected track")
-            print("  c - Cancel")
+        # Define play action callback
+        def play_selected_track(track):
+            # If from a playlist that's not loaded, load it first
+            if playlist_name and playlist_name != self.player.current_playlist_name:
+                self.player.load_playlist(playlist_name)
+                print(f"Loaded playlist: {playlist_name}")
+            
+            # Set index and play
+            idx = tracks.index(track)
+            self.player.current_index = idx
+            self.stop(args)
+            self.play(args)
+            return True
         
-        # Show paginated list
-        result = self.paginate_items(
-            display_items,
-            header=lambda page, total: print(f"\nMedia ({len(display_items)} tracks) - Page {page}/{total}:"),
-            footer=footer,
-            item_formatter=item_formatter,
-            current_index=self.player.current_index
+        # Use the simplified pagination function
+        self.get_paginated_selection(
+            items=tracks,
+            title=f"{'Playlist: ' + playlist_name if playlist_name else 'Media'} ({len(tracks)} tracks)",
+            play_action=play_selected_track
         )
-        
-        if result is None:
-            return  # User canceled
-            
-        # If a special key was returned, handle it
-        if isinstance(result, str):
-            print("Invalid command")
-            return
-            
-        # Set the current index and play the track
-        self.player.current_index = result
-        
-        # Use the built-in player commands
-        self.stop(args)
-        self.play(args)
     
     def show_help(self, args):
         """Show available commands"""
@@ -320,8 +350,7 @@ class MusicPlayerCLI:
                 
         print("\nPlaylist commands:")
         print("  playlists     - Show available playlists")
-        print("  loadpl <name> - Load a specific playlist")
-        print("  showpl <name> - View contents of a playlist")
+        # print("  loadpl <name> - Load a specific playlist")
         print("  createpl <name> - Create a new empty playlist")
         print("  savepl <name> - Save current playlist under a name")
         print("  addto <playlist> [track_num|search_term] - Add tracks to playlist")
@@ -348,10 +377,30 @@ class MusicPlayerCLI:
             print("No playlists found")
             return
         
-        # Prepare display items
-        display_items = []
-        for name, info in self.player.user_playlists.items():
-            display_items.append((name, info))
+        # Prepare display items with name and track count
+        playlist_items = [(name, info) for name, info in self.player.user_playlists.items()]
+        
+        # Define play action callback (loads and plays the playlist)
+        def load_and_play_selected_playlist(item):
+            name, _ = item
+            self.player.load_playlist(name)
+            print(f"Loaded playlist: {name}")
+            self.player.current_index = 0  # Start from the first track
+            self.player.play()
+            return True
+        
+        # Define custom action to view playlist contents
+        def view_playlist_contents():
+            selected_item = playlist_items[self.paginate_cursor_position]
+            name, _ = selected_item
+            self.list_tracks([name])
+            # Return None to stay in the playlist selection screen after returning
+            return True
+        
+        # Define custom actions
+        custom_actions = {
+            'v': ('View playlist contents', view_playlist_contents)
+        }
         
         # Custom formatter for playlist items
         def item_formatter(i, item, is_current, is_selected):
@@ -361,115 +410,19 @@ class MusicPlayerCLI:
             selector = "→ " if is_selected else "  "
             return f"{selector}{i}. {name}{current_marker} ({len(info['tracks'])} tracks)"
         
-        # Custom footer with playlist-specific options
-        def footer(page, total_pages):
-            print(f"\nPage {page}/{total_pages} - Options:")
-            print("  → / ← - Next/Previous page")
-            print("  ↑ / ↓ - Move selector")
-            print("  Enter - Load selected playlist")
-            print("  c - Cancel")
-        
-        # Show paginated list
+        # Use the simplified pagination function with a custom formatter
         result = self.paginate_items(
-            display_items,
-            header=lambda page, total: print(f"\nAvailable Playlists ({len(display_items)}) - Page {page}/{total}:"),
-            footer=footer,
-            item_formatter=item_formatter
+            items=playlist_items,
+            header=lambda page, total: print(f"\nAvailable Playlists ({len(playlist_items)}) - Page {page}/{total}:"),
+            footer=lambda page, total: print(f"\nPage {page}/{total} - Options:\n  → / ← - Next/Previous page\n  ↑ / ↓ - Move selector\n  Enter - Load selected playlist\n  v - View playlist contents\n  c - Cancel"),
+            item_formatter=item_formatter,
+            play_callback=load_and_play_selected_playlist,
+            custom_actions=custom_actions
         )
         
+        # Handle the result if not handled by callbacks
         if result is None:
             return  # User canceled
-        
-        # If a special key was returned, handle it
-        if isinstance(result, str):
-            print("Invalid command")
-            return
-        
-        # Load the selected playlist
-        name, _ = display_items[result]
-        self.player.load_playlist(name)
-        print(f"Loaded playlist: {name}")
-
-    def show_playlist_contents(self, args):
-        """Show the contents of a specific playlist with pagination."""
-        if not args:
-            print("Usage: showpl <playlist_name>")
-            print("Available playlists:")
-            for name in self.player.user_playlists:
-                print(f"  {name}")
-            return
-        
-        playlist_name = args[0]
-        
-        if playlist_name not in self.player.user_playlists:
-            print(f"Playlist not found: {playlist_name}")
-            print("Available playlists:")
-            for name in self.player.user_playlists:
-                print(f"  {name}")
-            return
-        
-        tracks = self.player.user_playlists[playlist_name]['tracks']
-        
-        if not tracks:
-            print(f"Playlist '{playlist_name}' is empty")
-            return
-        
-        print(f"\nPlaylist: {playlist_name} ({len(tracks)} tracks)")
-        print("-" * 50)
-        
-        # Prepare display items (tracks)
-        display_items = tracks
-        
-        # Custom formatter for track items in playlist
-        def item_formatter(i, item, is_current, is_selected):
-            selector = "→ " if is_selected else "  "
-            return f"{selector}{i}. {os.path.basename(item)}"
-        
-        # Custom footer with playlist-specific options
-        def footer(page, total_pages):
-            print(f"\nPage {page}/{total_pages} - Options:")
-            print("  → / ← - Next/Previous page")
-            print("  ↑ / ↓ - Move selector")
-            print("  Enter - Play selected track")
-            print("  l - Load this playlist")
-            print("  c - Cancel")
-        
-        while True:
-            # Show paginated list
-            result = self.paginate_items(
-                display_items,
-                header=lambda page, total: print(f"\nPlaylist: {playlist_name} ({len(tracks)} tracks) - Page {page}/{total}:"),
-                footer=footer,
-                item_formatter=item_formatter
-            )
-            
-            if result is None:
-                return  # User canceled
-                
-            # If a special key was returned
-            if result == 'l':
-                self.player.load_playlist(playlist_name)
-                print(f"Loaded playlist: {playlist_name}")
-                return
-            elif isinstance(result, str):
-                print("Invalid command")
-                continue
-            
-            # A track was selected
-            selected_index = result
-            
-            # First load the playlist if it's not already loaded
-            if self.player.current_playlist_name != playlist_name:
-                self.player.load_playlist(playlist_name)
-                print(f"Loaded playlist: {playlist_name}")
-            
-            # Set index and play using class methods
-            self.player.current_index = selected_index
-            
-            # Use the built-in player commands
-            self.stop(args)
-            self.play(args)
-            return
 
     def load_user_playlist(self, args):
         """Load a specific playlist."""
@@ -846,7 +799,38 @@ class MusicPlayerCLI:
         minutes = int(seconds // 60)
         seconds = int(seconds % 60)
         return f"{minutes:02d}:{seconds:02d}"
-               
+
+    def _add_search_results_to_playlist(self, matches):
+        """Add search results to a selected playlist."""
+        # Show available playlists
+        print("\nAvailable playlists:")
+        for i, name in enumerate(self.player.user_playlists.keys(), 1):
+            print(f"{i}. {name}")
+        
+        playlist_choice = input("\nEnter playlist number or name to add to, or Enter to cancel: ")
+        if not playlist_choice:
+            return None
+        
+        # Convert number to playlist name if needed
+        if playlist_choice.isdigit():
+            idx = int(playlist_choice) - 1
+            if 0 <= idx < len(self.player.user_playlists):
+                playlist_name = list(self.player.user_playlists.keys())[idx]
+            else:
+                print("Invalid playlist number")
+                return None
+        else:
+            playlist_name = playlist_choice
+        
+        # Add all search results to the selected playlist
+        added_count = 0
+        for _, track_path in matches:
+            if self.player.add_to_playlist(playlist_name, track_path):
+                added_count += 1
+        
+        print(f"Added {added_count} tracks to playlist: {playlist_name}")
+        return True
+         
     def search_tracks(self, args):
         """Search for tracks matching a search term."""
         if not args:
@@ -902,94 +886,25 @@ class MusicPlayerCLI:
             print(f"No tracks found matching '{search_term}'")
             return
         
-        # Create a formatted list of tracks for display
-        display_items = []
-        for index, track_path in matches:
-            display_items.append((index, track_path))
-        
-        # Define custom formatter for search results
-        def item_formatter(i, item, is_current, is_selected):
+        # Define play action callback
+        def play_selected_track(item):
             index, track_path = item
-            current_marker = " *" if is_current else ""
-            selector = "→ " if is_selected else "  "
-            return f"{selector}{i}. {os.path.basename(track_path)}{current_marker}"
+            self.player.current_index = index
+            self.player.play()
         
-        print(f"\nFound {len(matches)} tracks:")
+        # Define custom actions
+        custom_actions = {
+            'a': ('Add results to a playlist', 
+                lambda: self._add_search_results_to_playlist(matches))
+        }
         
-        while True:
-            # Define custom footer with search-specific options
-            def footer(page, total_pages):
-                print(f"\nPage {page}/{total_pages} - Options:")
-                print("  n - Next page")
-                print("  p - Previous page")
-                print("  # - Play track number")
-                print("  a - Add results to a playlist")
-                print("  c - Cancel")
-            
-            # Show paginated list
-            selected = self.paginate_items(
-                display_items, 
-                header=lambda page, total: print(f"\nSearch results for '{search_term}' - Page {page}/{total}:"),
-                footer=footer,
-                item_formatter=item_formatter,
-                current_index=self.player.current_index
-            )
-            
-            if selected is None:
-                print("Search canceled")
-                return
-            
-            # Get the input directly to check if it's the 'a' command
-            choice = input("\nEnter option (number to play, 'a' to add to playlist, 'c' to cancel): ").strip().lower()
-            
-            if choice == 'c':
-                print("Search canceled")
-                return
-            
-            if choice == 'a':
-                # Show available playlists
-                print("\nAvailable playlists:")
-                for i, name in enumerate(self.player.user_playlists.keys(), 1):
-                    print(f"{i}. {name}")
-                
-                playlist_choice = input("\nEnter playlist number or name to add to, or Enter to cancel: ")
-                if not playlist_choice:
-                    continue
-                
-                # Convert number to playlist name if needed
-                if playlist_choice.isdigit():
-                    idx = int(playlist_choice) - 1
-                    if 0 <= idx < len(self.player.user_playlists):
-                        playlist_name = list(self.player.user_playlists.keys())[idx]
-                    else:
-                        print("Invalid playlist number")
-                        continue
-                else:
-                    playlist_name = playlist_choice
-                
-                # Add all search results to the selected playlist
-                added_count = 0
-                for _, track_path in matches:
-                    if self.player.add_to_playlist(playlist_name, track_path):
-                        added_count += 1
-                
-                print(f"Added {added_count} tracks to playlist: {playlist_name}")
-                continue
-            
-            # Try to play the selected track
-            if choice.isdigit():
-                selection = int(choice)
-                if 1 <= selection <= len(display_items):
-                    selected_idx, _ = display_items[selection - 1]
-                    
-                    # Set as current track and play
-                    self.player.current_index = selected_idx
-                    self.player.play()
-                    return
-                else:
-                    print(f"Invalid selection: {selection}")
-            else:
-                print("Invalid command")
+        # Use the simplified pagination function
+        self.get_paginated_selection(
+            items=matches,
+            title=f"Search results for '{search_term}'",
+            play_action=play_selected_track,
+            custom_actions=custom_actions
+        )
                 
     def get_paginated_selection(self, items, title="Items", play_action=None, custom_actions=None):
         """
