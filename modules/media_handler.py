@@ -98,7 +98,7 @@ class MediaHandler:
         
         # Process each file path in the list
         for file_path in self.media_index:
-            print(f"Indexing: {file_path}")
+            # print(f"Indexing: {file_path}")
             # Create or update file entry
             filename = os.path.basename(file_path)
             

@@ -231,6 +231,7 @@ class MusicPlayer:
     
     def load_media(self, directory):
         """Load all music files from a directory."""
+        media = []
         # Add the directory to our index if it's not already there
         if self.media_handler.add_media_location(directory):
             # Update the index to scan the new location
@@ -242,29 +243,19 @@ class MusicPlayer:
             recursive=self.SCAN_SUBDIRECTORIES
         )
         
-        # Get all tracks from the media handler index
-        indexed_files = self.media_handler.get_all_indexed_tracks(
-            sort_method=self.DEFAULT_SORT.lower(),
-            shuffle=(self.DEFAULT_SORT.lower() == 'random')
-        )
+        # # Get all tracks from the media handler index
+        # indexed_files = self.media_handler.get_all_indexed_tracks(
+        #     sort_method=self.DEFAULT_SORT.lower(),
+        #     shuffle=(self.DEFAULT_SORT.lower() == 'random')
+        # )
         
         # Merge both sets of files (indexed and direct)
-        self.media = list(set(direct_files + indexed_files))
-        
-        # Apply sorting based on environment variable
-        sort_method = self.DEFAULT_SORT.lower()
-        if sort_method == 'name':
-            self.media.sort(key=lambda x: os.path.basename(x).lower())
-        elif sort_method == 'date':
-            self.media.sort(key=lambda x: os.path.getmtime(x))
-        elif sort_method == 'random':
-            random.shuffle(self.media)
-        
-        # Notify plugins
-        # self._notify_plugins('on_playlist_loaded', {'playlist': self.media})
-        
+        # media = list(set(direct_files + indexed_files))
+        media = list(direct_files)
+                
         # Print loading summary
-        print(f"Loaded {len(self.media)} tracks from {directory}")
+        print(f"Loaded {len(media)} tracks from {directory}")
+        self.media.extend(media)
         
     def play(self):
         """Start or resume playback."""
