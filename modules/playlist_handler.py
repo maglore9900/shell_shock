@@ -78,7 +78,7 @@ class PlaylistHandler:
                             'tracks': tracks,
                             'file': playlist_file  # Store the filename for saving
                         }
-                        print(f"Loaded playlist: {playlist_name} ({len(tracks)} tracks)")
+                        # print(f"Loaded playlist: {playlist_name} ({len(tracks)} tracks)")
                     else:
                         print(f"Skipped empty playlist: {playlist_name}")
                         
