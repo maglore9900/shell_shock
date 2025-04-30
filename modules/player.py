@@ -29,33 +29,7 @@ def clear_screen():
 clear_screen()
 
 class MusicPlayer:
-    """Core music player functionality"""  
-    @staticmethod
-    def sub_list_function_call(value=None):
-        """
-        Decorator that adds a 'list' attribute and an optional value attribute.
-        Can be used as @list_attribute or @list_attribute("value").
-        """
-        def decorator(func):
-            # Set the primary 'list' attribute
-            func.list = True
-            
-            # Add the value attribute if provided
-            if value is not None:
-                func.value = value
-            
-            return func
-        
-        # Handle both @list_attribute and @list_attribute("value")
-        if callable(value):
-            # Called as @list_attribute without parentheses
-            func = value
-            func.list = True
-            return func
-        else:
-            # Called as @list_attribute("value") with a string argument
-            return decorator   
-           
+    """Core music player functionality"""             
     def __init__(self, env):
         """Initialize the music player"""
         self.MUSIC_LIBRARY_PATH = env("MUSIC_LIBRARY_PATH", default=None)
@@ -74,8 +48,8 @@ class MusicPlayer:
         # Player state
         self.state = PlayerState.STOPPED
         self.current_track = None
-        self.playlist = []
         self.media = []
+        self.playlist = []
         self.current_index = 0
         self.current_playlist_name = None
         self.playback_info = {
@@ -102,6 +76,7 @@ class MusicPlayer:
         # Initialize other handlers
         self.playlist_handler = PlaylistHandler(playlists_dir=self.PLAYLISTS_PATH)
         self.user_playlists = self.playlist_handler.scan_playlists()
+        # Add local media
         
         # log.info("initialize plugin manager")
         # Create the plugin manager - ONLY ONCE with a reference to this player
@@ -147,7 +122,11 @@ class MusicPlayer:
         # self.load_media(self.MUSIC_LIBRARY_PATH)
         for path in paths:
             self.load_media(path)
-           
+        if self.media:
+            self.user_playlists["Local Media"]["tracks"] = self.media
+
+        print(self.user_playlists)   
+        
     def update_playback_info(self, info):
         """Update playback information"""
         for key, value in info.items():

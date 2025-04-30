@@ -1,0 +1,7 @@
+# Playlist file created 2025-04-29 18:28:16
+# Format: 'name:' line specifies playlist name
+# Everything else is either a comment (starts with #) or a track path
+
+name: test
+
+L:\code\slurp\media\songs\De Staat All Is Dull.m4a
