@@ -68,7 +68,6 @@ class MusicPlayerCLI:
         
         # Add plugin commands - only for enabled plugins
         self.add_plugin_commands()
-
     
     def add_plugin_commands(self):
         """Add commands for each plugin"""
