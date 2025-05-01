@@ -3,7 +3,7 @@ import time
 import readchar
 import os
 from modules.player import PlayerState, clear_screen
-from modules.logging_utils import log_function_call,  app_logger as logger
+from modules.logging_utils import log_function_call,  app_logger as log
 
 
 
@@ -122,6 +122,7 @@ class MusicPlayerCLI:
                 method = getattr(plugin, subcmd)
                 result = method(subcmd_args)
                 # Check if the result is a list/dict that should be paginated
+                log.info(f"method: {method}")
                 if hasattr(plugin, 'paginate_commands') and subcmd in plugin.paginate_commands:
                     # Define play callback based on the command type
                     play_callback = None
@@ -141,18 +142,18 @@ class MusicPlayerCLI:
                     # # Different handling for different command types
                     # elif subcmd == 'search' and hasattr(plugin, 'play_track'):
                     #     # For search results, use play_track
-                    #     logger.info("play track")
+                    #     log.info("play track")
                     #     play_callback = lambda item: plugin.play_track(item)
                     # elif subcmd == 'playlists' and hasattr(plugin, 'play_playlist'):
                     #     # For playlists, use play_playlist
-                    #     logger.info("play playlist")
+                    #     log.info("play playlist")
                     #     play_callback = lambda item: plugin.play_playlist(item)
                     # elif subcmd == 'albums' and hasattr(plugin, 'play_album'):
                     #     # For albums, use play_album if it exists
-                    #     logger.info("play album")
+                    #     log.info("play album")
                     #     play_callback = lambda item: plugin.play_album(item)
                     elif hasattr(plugin, 'play'):
-                        logger.info("play")
+                        log.info("play")
                         # Generic fallback
                         def generic_play(item):
                             if isinstance(item, (tuple, list)) and len(item) > 1:
@@ -782,7 +783,7 @@ class MusicPlayerCLI:
                                 self.plugin_command(plugin, active_plugin, ['volume', str(int(new_vol * 100))])
                                 self.player.set_volume(new_vol)
                             except Exception as e:
-                                logger.info(f"Error setting volume: {e}")
+                                log.info(f"Error setting volume: {e}")
                 
                 time.sleep(0.5)  # Give time for state to update
                 updated_playback = self.player.plugin_manager.get_playback_info()

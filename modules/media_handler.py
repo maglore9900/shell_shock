@@ -6,6 +6,7 @@ import json
 import time
 import random
 import ffmpeg
+from tinytag import TinyTag
 import urllib.request
 from pathlib import Path
 from datetime import datetime
@@ -54,7 +55,31 @@ class MediaHandler:
             directory = os.path.abspath(directory)
             if directory not in self.media_locations and os.path.exists(directory):
                 self.media_locations.append(directory)
-    
+
+    def get_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a media file.
+        
+        Args:
+            file_path (str): Path to the media file
+            
+        Returns:
+            Optional[Dict[str, Any]]: Metadata dictionary or None if not found
+        """
+        try:
+            tag: TinyTag = TinyTag.get(file_path)
+            return {
+                'title': tag.title,
+                'artist': tag.artist,
+                'album': tag.album,
+                'duration': tag.duration,
+                'bitrate': tag.bitrate,
+                'genre': tag.genre,
+                'year': tag.year,
+            }
+        except Exception as e:
+            log.error(f"Error getting metadata: {e}")
+            return None
+
     def remove_media_location(self, directory):
         """Remove a location from the index.
         
@@ -146,17 +171,6 @@ class MediaHandler:
         """
         # Get all tracks
         tracks = list(self.media_index.keys())
-        
-        # # Apply sorting
-        # if shuffle or sort_method == 'random':
-        #     random.shuffle(tracks)
-        # elif sort_method == 'name':
-        #     tracks.sort(key=lambda x: os.path.basename(x).lower())
-        # elif sort_method == 'date':
-        #     # Sort by added_on date if available, otherwise modification time
-        #     tracks.sort(key=lambda x: self.media_index[x].get('added_on', 
-        #                                                      datetime.fromtimestamp(os.path.getmtime(x)).isoformat()))
-        
         return tracks
     
     def search_tracks(self, query, limit=20):
@@ -219,7 +233,7 @@ class MediaHandler:
         Returns:
             dict: File metadata or None if not found
         """
-        return self.media_index.get(file_path)
+        return self.get_track_metadata.get(file_path)
     
     def update_play_stats(self, file_path):
         """Update play statistics for a file in the index.

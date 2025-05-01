@@ -57,8 +57,11 @@ class MusicPlayer:
             'track_name': None,
             'artist': None,
             'album': None,
+            'genre': None,
             'position': 0,
             'duration': 0,
+            'bitrate': None,
+            'year': None,
             'state': 'STOPPED',  # 'STOPPED', 'PLAYING', 'PAUSED'
             'plugin_instance': None  # Reference to the active plugin instance
         }
@@ -302,21 +305,41 @@ class MusicPlayer:
         Returns:
             dict: A dictionary with current playback information
         """
-        # Use the plugin manager to get current playback info
-        current_playback = self.plugin_manager.get_playback_info()
-        
         # If it's local playback and we're playing, update the position
-        if current_playback['source'] == 'local' and self.state == PlayerState.PLAYING:
-            data = self.media_handler.get_track_metadata(self.current_track)
-            elapsed = time.time() - self.track_start_time            
-            self.update_playback_info({
-                            'track_name': data['filename'],
-                            'position': min(elapsed, data['duration']),
-                            'duration': data['duration'],
-                            'state': 'PLAYING' 
-                        })
+        current_playback = self.playback_info.copy()
+        if self.state == PlayerState.PLAYING:
+            if current_playback['source'] == 'local':
+                metadata = self.media_handler.get_metadata(self.current_track) 
+                elapsed = time.time() - self.track_start_time   
+                # Get metadata if exists, otherwise use local data
+                track_name = metadata['title'] if metadata and 'title' in metadata else os.path.basename(self.current_track)
+                duration = metadata['duration'] if metadata and 'duration' in metadata else self.media_handler.get_track_duration(self.current_track)
+
+                # Get metadata if exists, local data on this does not exist
+                artist = metadata['artist'] if metadata and 'artist' in metadata else None
+                album = metadata['album'] if metadata and 'album' in metadata else None
+                genre = metadata['genre'] if metadata and 'genre' in metadata else None
+                bitrate = metadata['bitrate'] if metadata and 'bitrate' in metadata else None
+                year = metadata['year'] if metadata and 'year' in metadata else None
+
+                self.update_playback_info({
+                                'track_name': track_name,
+                                'position': min(elapsed, duration),
+                                'duration': duration,
+                                'artist': artist,
+                                'album': album,
+                                'genre': genre,
+                                'bitrate': bitrate,
+                                'year': year,
+                                'source': 'local',
+                                'state': 'PLAYING' 
+                            })
+            else:
+                # Use the plugin manager to get current playback info
+                current_playback = self.plugin_manager.get_playback_info()
         
-        return current_playback
+            return current_playback
+        return self.playback_info
 
     def pause(self):
         """Pause playback."""
