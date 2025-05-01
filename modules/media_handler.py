@@ -56,7 +56,7 @@ class MediaHandler:
             if directory not in self.media_locations and os.path.exists(directory):
                 self.media_locations.append(directory)
 
-    def get_metadata(self, file_path: str) -> Optional[Dict[str, Any]]:
+    def get_metadata_from_tags(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get metadata for a media file.
         
         Args:
@@ -79,6 +79,29 @@ class MediaHandler:
         except Exception as e:
             log.error(f"Error getting metadata: {e}")
             return None
+
+    def get_metadata_from_file(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a media file from the index.
+        
+        Args:
+            file_path (str): Path to the media file
+            
+        Returns:
+            Optional[Dict[str, Any]]: Metadata dictionary or None if not found
+        """
+        index_info = self.media_index.get(file_path, None)
+        track_name = index_info.get('filename', None) if index_info else None
+        duration = index_info.get('duration', None) if index_info else None
+        if not track_name:
+            track_name = os.path.basename(file_path)
+        if not duration:
+            duration = self.get_track_duration(file_path)
+        data = {
+            'track_name': track_name,
+            'duration': duration,
+            }
+
+        return data
 
     def remove_media_location(self, directory):
         """Remove a location from the index.
