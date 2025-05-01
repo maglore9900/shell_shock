@@ -309,12 +309,13 @@ class MusicPlayer:
         current_playback = self.playback_info.copy()
         if self.state == PlayerState.PLAYING:
             if current_playback['source'] == 'local':
-                metadata = self.media_handler.get_metadata(self.current_track) 
+                #! Prioritizing meta tags, else getting from media handler (index then direct check)
+                metadata = self.media_handler.get_metadata_from_tags(self.current_track) 
+                data = self.media_handler.get_metadata_from_file(self.current_track)
                 elapsed = time.time() - self.track_start_time   
-                # Get metadata if exists, otherwise use local data
-                track_name = metadata['title'] if metadata and 'title' in metadata else os.path.basename(self.current_track)
-                duration = metadata['duration'] if metadata and 'duration' in metadata else self.media_handler.get_track_duration(self.current_track)
-
+                #! Get metadata if exists, otherwise use local data
+                track_name = (metadata and metadata.get('title')) or (data and data.get('track_name')) or None
+                duration = (metadata and metadata.get('duration')) or (data and data.get('duration')) or None
                 # Get metadata if exists, local data on this does not exist
                 artist = metadata['artist'] if metadata and 'artist' in metadata else None
                 album = metadata['album'] if metadata and 'album' in metadata else None
