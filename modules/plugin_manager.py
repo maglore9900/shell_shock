@@ -2,7 +2,7 @@
 import os
 import importlib.util
 import json
-from modules.logging_utils import log_function_call
+from modules.logging_utils import log_function_call, app_logger as log
 from datetime import datetime
 import pygame
 
@@ -240,6 +240,8 @@ class PluginManager:
             if hasattr(plugin, 'get_current_playback'):
                 try:
                     plugin_info = plugin.get_current_playback()
+                    log.info(f"Plugin {self.active_plugin} playback info: {plugin_info}")
+                    print(f"Plugin {self.active_plugin} playback info: {plugin_info}")
                     if plugin_info:
                         # Update our stored info with latest from plugin
                         self.player.update_playback_info({
@@ -248,6 +250,8 @@ class PluginManager:
                             'album': plugin_info.get('album', ''),
                             'position': plugin_info.get('progress_ms', 0) / 1000.0 if 'progress_ms' in plugin_info else plugin_info.get('position', 0),
                             'duration': plugin_info.get('duration_ms', 0) / 1000.0 if 'duration_ms' in plugin_info else plugin_info.get('duration', 0),
+                            'genre': plugin_info.get('genre', ''),
+                            'year': plugin_info.get('year', ''),
                             'state': 'PLAYING' if plugin_info.get('is_playing', False) else 'PAUSED'
                         })
                     if self.get_info_time is None:
