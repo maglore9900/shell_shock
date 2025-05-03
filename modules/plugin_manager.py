@@ -407,8 +407,8 @@ class PluginManager:
         current_info = self.player.playback_info.copy()
         
         # Debug info
-        # print(f"Current active source: {current_source}")
-        # print(f"Current state: {current_info.get('state')}")
+        print(f"Current active source: {current_source}")
+        print(f"Current state: {current_info.get('state')}")
         
         # Force stop all playback regardless of state
         if current_source == 'local':
@@ -466,20 +466,6 @@ class PluginManager:
                     except Exception as e:
                         print(f"Error pausing plugin {current_source}: {e}")
         
-        # For extra safety, try to force pygame to stop again
-        try:
-            import pygame
-            if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
-                print("Forcing pygame music stop")
-                pygame.mixer.music.stop()
-                
-                # Another check to confirm
-                time.sleep(0.2)
-                if pygame.mixer.music.get_busy():
-                    print("WARNING: Pygame still playing after forced stop!")
-        except Exception as e:
-            print(f"Error stopping pygame directly: {e}")
-        
         # Now set the new active source
         print(f"Setting new active source: {new_source}")
         self.active_plugin = new_source
@@ -494,7 +480,7 @@ class PluginManager:
         if hasattr(self.player, 'event_bus'):
             self.player.event_bus.publish(self.player.SOURCE_CHANGED, {
                 'previous_source': current_source,
-                'new_source': new_source
+                'new_source': new_source,
             })
         
         print(f"New active source set: {self.active_plugin}")
