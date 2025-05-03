@@ -152,7 +152,7 @@ class MusicPlayerCLI:
                 method = getattr(plugin, subcmd)
                 result = method(subcmd_args)
                 # Check if the result is a list/dict that should be paginated
-                log.info(f"method: {method}")
+                # log.info(f"method: {method}")
                 if hasattr(plugin, 'paginate_commands') and subcmd in plugin.paginate_commands:
                     # Define play callback based on the command type
                     play_callback = None
@@ -170,7 +170,7 @@ class MusicPlayerCLI:
                             return result
                         play_callback = complete_callback
                     elif hasattr(plugin, 'play'):
-                        log.info("play")
+                        # log.info("play")
                         # Generic fallback
                         def generic_play(item):
                             if isinstance(item, (tuple, list)) and len(item) > 1:

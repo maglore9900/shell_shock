@@ -86,7 +86,7 @@ class PlaylistHandler:
                 print(f"Error loading playlist {default_name}: {e}")
         
         # Print loading summary
-        print(f"\nLoaded {len(self.playlists)} playlists from {self.playlists_dir}")
+        # print(f"\nLoaded {len(self.playlists)} playlists from {self.playlists_dir}")
         return self.playlists
     
     def save_playlist(self, playlist_name, tracks, file_name=None):

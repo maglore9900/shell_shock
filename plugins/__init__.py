@@ -61,23 +61,15 @@ class BasePlugin(ABC, Generic[T]):
         self.current_temp_file = None  # For tracking temporary audio files
         self.paused_position = 0  # Track position when paused
         
-        # Subscribe to both new and legacy events if event bus exists
+        # Subscribe to standard events if event bus exists
         if hasattr(player, 'event_bus'):
-            # Standard player events
+            # Standard player events only
             for event_type, handler_name in [
                 (player.STATE_CHANGED, 'on_state_changed'),
                 (player.TRACK_CHANGED, 'on_track_changed'),
                 (player.SOURCE_CHANGED, 'on_source_changed'),
                 (player.POSITION_CHANGED, 'on_position_changed'),
-                (player.VOLUME_CHANGED, 'on_volume_changed'),
-                # Legacy events for backward compatibility
-                ('on_play', 'on_play'),
-                ('on_pause', 'on_pause'),
-                ('on_stop', 'on_stop'),
-                ('on_playlist_loaded', 'on_playlist_loaded'),
-                ('on_volume_change', 'on_volume_change'),
-                ('on_shuffle_change', 'on_shuffle_change'),
-                ('on_shutdown', 'on_shutdown')
+                (player.VOLUME_CHANGED, 'on_volume_changed')
             ]:
                 if hasattr(self, handler_name):
                     player.event_bus.subscribe(event_type, getattr(self, handler_name))
@@ -403,75 +395,7 @@ class BasePlugin(ABC, Generic[T]):
             self._set_volume_impl(int(new_volume * 100))
             # Call plugin-specific hook
             self.on_volume_changed_hook(data)
-    
-    # Legacy event handlers
-    def on_play(self, data):
-        """Called when a track starts playing"""
-        # Only handle if we're the active source
-        if self._is_active():
-            # Update internal state tracking
-            self.current_state = 'PLAYING'
-            self.track_start_time = time.time() - self.paused_position
-            self.paused_position = 0
-            # Call plugin-specific hook
-            self.on_play_hook(data)
-    
-    def on_pause(self, data):
-        """Called when playback is paused"""
-        # Only handle if we're the active source
-        if self._is_active():
-            # Update internal state tracking
-            self.current_state = 'PAUSED'
-            self.paused_position = self.get_audio_position()
-            # Call plugin-specific hook
-            self.on_pause_hook(data)
-    
-    def on_stop(self, data):
-        """Called when playback is stopped"""
-        # Only handle if we're the active source
-        if self._is_active():
-            # Update internal state tracking
-            self.current_state = 'STOPPED'
-            self.track_start_time = 0
-            self.paused_position = 0
-            self.cleanup_temp_file()
-            # Call plugin-specific hook
-            self.on_stop_hook(data)
-    
-    def on_playlist_loaded(self, data):
-        """Called when a playlist is loaded"""
-        # Call plugin-specific hook
-        self.on_playlist_loaded_hook(data)
-    
-    def on_volume_change(self, data):
-        """Called when volume is changed"""
-        # Only handle if we're the active source
-        if self._is_active():
-            volume = data.get('volume', 0)
-            self._set_volume_impl(int(volume * 100))
-            # Call plugin-specific hook
-            self.on_volume_change_hook(data)
-    
-    def on_shuffle_change(self, data):
-        """Called when shuffle mode changes"""
-        # Call plugin-specific hook
-        self.on_shuffle_change_hook(data)
-    
-    def on_now(self, data):
-        """Called when the current track is requested"""
-        # Only handle if we're the active source
-        if self._is_active():
-            # Make sure our playback info is up-to-date
-            self.update_playback_info()
-            # Call plugin-specific hook
-            self.on_now_hook(data)
-    
-    def on_shutdown(self, data):
-        """Called when the player is shutting down"""
-        self.stop([])
-        self.cleanup_temp_file()
-        # Call plugin-specific hook
-        self.on_shutdown_hook(data)
+
     
     # Hook methods that plugins can override without reimplementing event handlers
     def on_state_changed_hook(self, data):
@@ -492,38 +416,6 @@ class BasePlugin(ABC, Generic[T]):
     
     def on_volume_changed_hook(self, data):
         """Override this to handle volume changes"""
-        pass
-    
-    def on_play_hook(self, data):
-        """Override this to handle play events"""
-        pass
-    
-    def on_pause_hook(self, data):
-        """Override this to handle pause events"""
-        pass
-    
-    def on_stop_hook(self, data):
-        """Override this to handle stop events"""
-        pass
-    
-    def on_playlist_loaded_hook(self, data):
-        """Override this to handle playlist loaded events"""
-        pass
-    
-    def on_volume_change_hook(self, data):
-        """Override this to handle volume change events"""
-        pass
-    
-    def on_shuffle_change_hook(self, data):
-        """Override this to handle shuffle mode changes"""
-        pass
-    
-    def on_now_hook(self, data):
-        """Override this to handle now playing requests"""
-        pass
-    
-    def on_shutdown_hook(self, data):
-        """Override this to handle shutdown events"""
         pass
     
     def command_help(self):
