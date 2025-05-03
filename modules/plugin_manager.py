@@ -407,8 +407,8 @@ class PluginManager:
         current_info = self.player.playback_info.copy()
         
         # Debug info
-        print(f"Current active source: {current_source}")
-        print(f"Current state: {current_info.get('state')}")
+        # print(f"Current active source: {current_source}")
+        # print(f"Current state: {current_info.get('state')}")
         
         # Force stop all playback regardless of state
         if current_source == 'local':
@@ -442,32 +442,30 @@ class PluginManager:
                     time.sleep(0.2)  # Another short delay
                     if pygame.mixer.music.get_busy():
                         print("CRITICAL: Pygame still playing after second stop attempt!")
-                else:
-                    print("Pygame playback confirmed stopped")
             except Exception as e:
                 print(f"Error checking pygame state: {e}")
         
         elif current_source in self.plugins:
             # Force stop the active plugin
-            print(f"Stopping plugin {current_source}...")
+            # print(f"Stopping plugin {current_source}...")
             plugin_info = self.plugins[current_source]
             if plugin_info and 'instance' in plugin_info:
                 plugin = plugin_info['instance']
                 if hasattr(plugin, 'stop'):
                     try:
                         plugin.stop([])
-                        print(f"Plugin {current_source} stopped via stop method")
+                        # print(f"Plugin {current_source} stopped via stop method")
                     except Exception as e:
                         print(f"Error stopping plugin {current_source}: {e}")
                 elif hasattr(plugin, 'pause'):
                     try:
                         plugin.pause([])
-                        print(f"Plugin {current_source} stopped via pause method")
+                        # print(f"Plugin {current_source} stopped via pause method")
                     except Exception as e:
                         print(f"Error pausing plugin {current_source}: {e}")
         
         # Now set the new active source
-        print(f"Setting new active source: {new_source}")
+        # print(f"Setting new active source: {new_source}")
         self.active_plugin = new_source
         self.player.playback_info['source'] = new_source
         
@@ -483,7 +481,7 @@ class PluginManager:
                 'new_source': new_source,
             })
         
-        print(f"New active source set: {self.active_plugin}")
+        # print(f"New active source set: {self.active_plugin}")
         return True
 
     def update_playback_info(self, info):
