@@ -266,8 +266,8 @@ class MusicPlayer:
         def _event_loop():
             """Background thread for handling events like track ending."""
             while self.running:
-                # Check if music has finished playing
-                if self.state == PlayerState.PLAYING and not pygame.mixer.music.get_busy():
+                # Only check pygame status if local playback is active
+                if self.plugin_manager.get_active_plugin() == 'local' and self.state == PlayerState.PLAYING and not pygame.mixer.music.get_busy():
                     # Track finished playing
                     old_state = self.state
                     self.state = PlayerState.STOPPED

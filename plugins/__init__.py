@@ -170,7 +170,12 @@ class BasePlugin(ABC, Generic[T]):
                 return False
                 
             # Call the plugin-specific implementation
-            return self._play_impl(args)
+            # return self._play_impl(args)
+            return self.handle_state_transition(
+                lambda: self._play_impl(args),
+                wait_time=0.5,
+                state_update={'state': 'PLAYING'}
+            )
         except Exception as e:
             print(f"Error in play: {e}")
             return False
