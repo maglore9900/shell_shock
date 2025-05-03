@@ -39,6 +39,12 @@ class MusicPlayerCLI:
     def __init__(self, player):
         """Initialize with a player instance"""
         self.player = player
+        if hasattr(player, 'event_bus'):
+            player.event_bus.subscribe(player.STATE_CHANGED, self.handle_state_changed)
+            player.event_bus.subscribe(player.TRACK_CHANGED, self.handle_track_changed)
+            player.event_bus.subscribe(player.SOURCE_CHANGED, self.handle_source_changed)
+            player.event_bus.subscribe(player.VOLUME_CHANGED, self.handle_volume_changed)
+        
         self.paginate_cursor_position = 0
         # Define commands
         self.commands = {
@@ -69,8 +75,30 @@ class MusicPlayerCLI:
         # Add plugin commands - only for enabled plugins
         self.add_plugin_commands()
     
+    # Event handlers for state events
+    def handle_state_changed(self, data):
+        """Handle state change events for UI updates"""
+        # The CLI doesn't need to do anything immediately with state changes
+        # This is mostly for future UI enhancements or reactive displays
+        pass
+
+    def handle_track_changed(self, data):
+        """Handle track change events for UI updates"""
+        # Could update display if we add a persistent UI in the future
+        pass
+
+    def handle_source_changed(self, data):
+        """Handle source change events for UI updates"""
+        # Could update prompt or display when source changes
+        pass
+
+    def handle_volume_changed(self, data):
+        """Handle volume change events for UI updates"""
+        # Could show volume indicator if we add a persistent UI
+        pass
+
     def add_plugin_commands(self):
-        """Add commands for each plugin"""
+        """Add commands for each plugin and subscribe to plugin events"""
         # Use the plugin manager to get command names
         command_names = self.player.plugin_manager.get_plugin_command_names()
         for plugin_name, command_name in command_names.items():
@@ -78,6 +106,9 @@ class MusicPlayerCLI:
             
             # Register the command
             self.commands[command_name] = lambda args, plugin=plugin, name=plugin_name: self.plugin_command(plugin, name, args)
+            
+            # Subscribe to plugin-specific events if needed
+            # This can be extended based on specific plugins' needs
     
     # Add a wrapper method for plugin functions that need pagination
     def plugin_paginated_results(self, plugin, command_name, results, play_callback=None, custom_actions=None):
@@ -115,7 +146,6 @@ class MusicPlayerCLI:
         subcmd = args[0].lower()
         subcmd_args = args[1:] if len(args) > 1 else []
         
-        
         # Try to call the matching method on the plugin
         if hasattr(plugin, subcmd):
             try:
@@ -139,19 +169,6 @@ class MusicPlayerCLI:
                                     lambda subitem: plugin.play(subitem))
                             return result
                         play_callback = complete_callback
-                    # # Different handling for different command types
-                    # elif subcmd == 'search' and hasattr(plugin, 'play_track'):
-                    #     # For search results, use play_track
-                    #     log.info("play track")
-                    #     play_callback = lambda item: plugin.play_track(item)
-                    # elif subcmd == 'playlists' and hasattr(plugin, 'play_playlist'):
-                    #     # For playlists, use play_playlist
-                    #     log.info("play playlist")
-                    #     play_callback = lambda item: plugin.play_playlist(item)
-                    # elif subcmd == 'albums' and hasattr(plugin, 'play_album'):
-                    #     # For albums, use play_album if it exists
-                    #     log.info("play album")
-                    #     play_callback = lambda item: plugin.play_album(item)
                     elif hasattr(plugin, 'play'):
                         log.info("play")
                         # Generic fallback
@@ -161,28 +178,15 @@ class MusicPlayerCLI:
                             return False
                         play_callback = generic_play
                     
-                    # Define custom actions if needed
-                    # custom_actions = {}
-                    # if subcmd == 'playlists' and hasattr(plugin, 'load'):
-                    #     custom_actions['l'] = ('Load playlist', 
-                    #                         lambda: plugin.load([result[self.paginate_cursor_position][1]]))
-                    
                     # Display paginated results
                     self.plugin_paginated_results(plugin, subcmd, result, play_callback)
                     return
                 
                 # Set the plugin as active for playback-related commands
                 if subcmd in ['play', 'pause', 'next', 'prev', 'previous']:
-                    # Set this plugin as active
+                    # Just set the plugin as active and let the player handle state changes
                     self.player.plugin_manager.set_active_plugin(plugin_name)
-                    
-                    # Force an immediate update of playback info
-                    playback = self.player.get_current_playback()
-                    
-                    # Show current playback information if playing
-                    if playback['state'] == 'PLAYING':
-                        source_name = self.player.plugin_manager.get_plugin_display_name(playback['source'])
-                        artist_str = f" - {playback['artist']}" if playback['artist'] else ""
+                    # No need to force state checks - the event system will update UI as needed
                 
                 return result
             except Exception as e:
@@ -365,6 +369,13 @@ class MusicPlayerCLI:
     
     def exit(self, args):
         """Exit the player"""
+        # Unsubscribe from events before shutting down
+        if hasattr(self.player, 'event_bus'):
+            self.player.event_bus.unsubscribe(self.player.STATE_CHANGED, self.handle_state_changed)
+            self.player.event_bus.unsubscribe(self.player.TRACK_CHANGED, self.handle_track_changed)
+            self.player.event_bus.unsubscribe(self.player.SOURCE_CHANGED, self.handle_source_changed)
+            self.player.event_bus.unsubscribe(self.player.VOLUME_CHANGED, self.handle_volume_changed)
+        
         self.player.shutdown()
         clear_screen()
         print("Goodbye!")
@@ -658,64 +669,86 @@ class MusicPlayerCLI:
             exit_flag = threading.Event()
             
             # Create a simple thread to update the display without blocking
-            def update_display():
+            def update_display(event_data=None):
+                if exit_flag.is_set():
+                    return
+                    
+                # Get updated playback info - even if called from an event
+                playback = self.player.get_current_playback()
+                
+                # Extract variables for easy reference
+                track_name = playback['track_name']
+                artist = playback['artist']
+                album = playback['album']
+                position = playback['position']
+                duration = playback['duration']
+                source = self.player.plugin_manager.get_plugin_display_name(playback['source'])
+                playback_state = playback['state']
+                
+                # Calculate progress percentage
+                progress_percent = 0
+                if duration > 0:
+                    progress_percent = min(100, (position / duration) * 100)
+                
+                # Clear screen
+                clear_screen()
+                
+                # Build display
+                print("\n=== NOW PLAYING ===")
+                print(f"\nTrack: {track_name}")
+                if artist:
+                    print(f"Artist: {artist}")
+                if album:
+                    print(f"Album: {album}")
+                print(f"Source: {source}")
+                print(f"State: {playback_state}")
+                print(f"Volume: {int(self.player.volume * 100)}%")
+                print(f"Shuffle: {'On' if self.player.shuffle_mode else 'Off'}")
+                
+                # Progress bar (50 characters wide)
+                bar_width = 50
+                filled_width = int(bar_width * progress_percent / 100)
+                bar = '█' * filled_width + '░' * (bar_width - filled_width)
+                
+                # Time display
+                position_str = self.format_time(position)
+                duration_str = self.format_time(duration)
+                
+                print(f"\n{position_str} {bar} {duration_str}")
+                
+                # Show controls
+                print("\nControls:")
+                print("  [Space] Pause/Play")
+                print("  [←/→] Previous/Next Track")
+                print("  [↑/↓] Volume Up/Down")
+                print("  [s] Toggle Shuffle Mode")
+                print("  [q] Return to main menu")
+                
+                print("\nPress a key...", end='', flush=True)
+            
+            # Update position handler (only updates the progress bar)
+            def update_position(event_data=None):
+                if exit_flag.is_set():
+                    return
+                # For future implementation - could make a more efficient position update
+                # without clearing the screen
+            
+            # Subscribe to events for more responsive updates
+            if hasattr(self.player, 'event_bus'):
+                self.player.event_bus.subscribe(self.player.STATE_CHANGED, update_display)
+                self.player.event_bus.subscribe(self.player.TRACK_CHANGED, update_display)
+                self.player.event_bus.subscribe(self.player.POSITION_CHANGED, update_position)
+            
+            # Initial display
+            update_display()
+            
+            # Start a background thread for regular updates
+            def display_loop():
                 while not exit_flag.is_set():
-                    # Get updated playback info
-                    playback = self.player.get_current_playback()
-                    
-                    # Extract variables for easy reference
-                    track_name = playback['track_name']
-                    artist = playback['artist']
-                    album = playback['album']
-                    position = playback['position']
-                    duration = playback['duration']
-                    source = self.player.plugin_manager.get_plugin_display_name(playback['source'])
-                    
-                    # Calculate progress percentage
-                    progress_percent = 0
-                    if duration > 0:
-                        progress_percent = min(100, (position / duration) * 100)
-                    
-                    # Clear screen
-                    clear_screen()
-                    
-                    # Build display
-                    print("\n=== NOW PLAYING ===")
-                    print(f"\nTrack: {track_name}")
-                    if artist:
-                        print(f"Artist: {artist}")
-                    if album:
-                        print(f"Album: {album}")
-                    print(f"Source: {source}")
-                    print(f"Volume: {int(self.player.volume * 100)}%")
-                    print(f"Shuffle: {'On' if self.player.shuffle_mode else 'Off'}")
-                    
-                    # Progress bar (50 characters wide)
-                    bar_width = 50
-                    filled_width = int(bar_width * progress_percent / 100)
-                    bar = '█' * filled_width + '░' * (bar_width - filled_width)
-                    
-                    # Time display
-                    position_str = self.format_time(position)
-                    duration_str = self.format_time(duration)
-                    
-                    print(f"\n{position_str} {bar} {duration_str}")
-                    
-                    # Show controls
-                    print("\nControls:")
-                    print("  [Space] Pause/Play")
-                    print("  [←/→] Previous/Next Track")
-                    print("  [↑/↓] Volume Up/Down")
-                    print("  [s] Toggle Shuffle Mode")
-                    print("  [q] Return to main menu")
-                    
-                    print("\nPress a key...", end='', flush=True)
-                    
-                    # Sleep for a short time before updating again
+                    update_display()
                     time.sleep(0.5)
             
-            # Start the display update thread
-            display_thread = threading.Thread(target=update_display)
+            display_thread = threading.Thread(target=display_loop)
             display_thread.daemon = True
             display_thread.start()
             
@@ -727,6 +760,13 @@ class MusicPlayerCLI:
                 if key == 'q':
                     print("\nReturning to main menu...")
                     exit_flag.set()
+                    
+                    # Unsubscribe from events
+                    if hasattr(self.player, 'event_bus'):
+                        self.player.event_bus.unsubscribe(self.player.STATE_CHANGED, update_display)
+                        self.player.event_bus.unsubscribe(self.player.TRACK_CHANGED, update_display)
+                        self.player.event_bus.unsubscribe(self.player.POSITION_CHANGED, update_position)
+                    
                     display_thread.join(timeout=1.0)
                     break
                 
@@ -744,8 +784,8 @@ class MusicPlayerCLI:
                 # Handle different key commands
                 if key == readchar.key.SPACE:
                     if active_plugin == 'local':
-                        # Toggle local playback
-                        if self.player.state == PlayerState.PLAYING:
+                        # Toggle local playback using playback state instead of direct enum access
+                        if current_playback['state'] == 'PLAYING':
                             self.player.pause()
                         else:
                             self.player.play()
@@ -785,13 +825,18 @@ class MusicPlayerCLI:
                             except Exception as e:
                                 log.info(f"Error setting volume: {e}")
                 
-                time.sleep(0.5)  # Give time for state to update
-                updated_playback = self.player.plugin_manager.get_playback_info()
         except KeyboardInterrupt:
             print("\nReturning to main menu...")
             # Make sure to stop the display thread if we get an interruption
             if 'exit_flag' in locals():
                 exit_flag.set()
+                
+                # Unsubscribe from events if subscribed
+                if hasattr(self.player, 'event_bus'):
+                    self.player.event_bus.unsubscribe(self.player.STATE_CHANGED, update_display)
+                    self.player.event_bus.unsubscribe(self.player.TRACK_CHANGED, update_display)
+                    self.player.event_bus.unsubscribe(self.player.POSITION_CHANGED, update_position)
+                
                 if 'display_thread' in locals():
                     display_thread.join(timeout=1.0)
 
@@ -1202,7 +1247,8 @@ class MusicPlayerCLI:
         clear_screen()
         print("\n=== Player Information ===")
         
-        # Get status info
+        # Get status info from the playback_info directly
+        playback = self.player.get_current_playback()
         status = self.player.get_status()
         
         # Player version
@@ -1215,6 +1261,8 @@ class MusicPlayerCLI:
         print(f"- Playlists Path: {self.player.PLAYLISTS_PATH}")
         print(f"- Plugins Path: {self.player.PLUGINS_PATH}")
         print(f"- Auto-load Plugins: {status['auto_load_plugins']}")
+        print(f"- Current Playback State: {playback['state']}")
+        print(f"- Current Source: {playback['source']}")
         print(f"- Enabled Plugins: {len(self.player.plugin_manager.settings['enabled_plugins'])}")
         print(f"- Available Plugins: {len(self.player.available_plugins)}")
         print(f"- Current Volume: {int(status['volume'] * 100)}%")
@@ -1285,6 +1333,13 @@ class MusicPlayerCLI:
                         # Disable plugin
                         if self.player.disable_plugin(plugin_name):
                             print(f"Disabled plugin: {plugin_name}")
+                            
+                            # Publish source changed event if this was the active plugin
+                            if hasattr(self.player, 'event_bus') and self.player.plugin_manager.get_active_plugin() == plugin_name:
+                                self.player.event_bus.publish(self.player.SOURCE_CHANGED, {
+                                    'previous_source': plugin_name,
+                                    'new_source': 'local'
+                                })
                     else:
                         # Enable plugin
                         if self.player.enable_plugin(plugin_name):
@@ -1323,7 +1378,7 @@ class MusicPlayerCLI:
         
         while True:
             try:
-                # Get current playback info
+                # Get current playback info from playback_info rather than direct state access
                 playback = self.player.get_current_playback()
                 
                 # Show track status indicator if there is a current track
@@ -1331,7 +1386,7 @@ class MusicPlayerCLI:
                     source_name = self.player.plugin_manager.get_plugin_display_name(playback['source'])
                     artist_str = f" - {playback['artist']}" if playback['artist'] else ""
                     
-                    # Show different status indicators based on state
+                    # Show different status indicators based on state string
                     if playback['state'] == 'PLAYING':
                         status_icon = "|>"  # Play icon
                     elif playback['state'] == 'PAUSED':

@@ -4,7 +4,7 @@ import importlib.util
 import json
 from modules.logging_utils import log_function_call, app_logger as log
 from datetime import datetime
-import pygame
+
 
 class PluginManager:
     """Manages all plugins and their states"""
@@ -12,6 +12,7 @@ class PluginManager:
     def __init__(self, settings_file="plugin_settings.json", player_instance=None):
         """Initialize the plugin manager"""
         self.player = player_instance
+        self.event_bus = player_instance.event_bus if player_instance else None
         self.plugins = {}  # Store all loaded plugins
         self.available_plugins = {}  # Store information about available plugins
         self.active_plugin = None  # Currently active plugin
@@ -78,17 +79,7 @@ class PluginManager:
         return self.available_plugins
     
     def load_plugin(self, plugin_name, plugin_path, player_instance):
-        """
-        Load a specific plugin by name
-        
-        Args:
-            plugin_name: Name of the plugin to load
-            plugin_path: Path to the plugin file
-            player_instance: Reference to the music player instance
-            
-        Returns:
-            bool: True if loaded successfully, False otherwise
-        """
+        """Load a specific plugin by name"""
         try:
             # Load the module
             spec = importlib.util.spec_from_file_location(plugin_name, plugin_path)
@@ -100,6 +91,27 @@ class PluginManager:
                 plugin = module.Plugin(player_instance)
                 # Register with the plugin manager
                 self.register_plugin(plugin_name, plugin)
+                
+                # Subscribe to events if event bus exists
+                if hasattr(self.player, 'event_bus'):
+                    # Standard player events
+                    for event_type, handler_name in [
+                        (self.player.STATE_CHANGED, 'on_state_changed'),
+                        (self.player.TRACK_CHANGED, 'on_track_changed'),
+                        (self.player.SOURCE_CHANGED, 'on_source_changed'),
+                        (self.player.POSITION_CHANGED, 'on_position_changed'),
+                        (self.player.VOLUME_CHANGED, 'on_volume_changed'),
+                        # Legacy events for backward compatibility
+                        ('on_play', 'on_play'),
+                        ('on_pause', 'on_pause'),
+                        ('on_stop', 'on_stop'),
+                        ('on_playlist_loaded', 'on_playlist_loaded'),
+                        ('on_volume_change', 'on_volume_change'),
+                        ('on_shutdown', 'on_shutdown')
+                    ]:
+                        if hasattr(plugin, handler_name):
+                            self.player.event_bus.subscribe(event_type, getattr(plugin, handler_name))
+                
                 # Update available plugins info
                 if plugin_name in self.available_plugins:
                     self.available_plugins[plugin_name]['loaded'] = True
@@ -156,24 +168,54 @@ class PluginManager:
         return False  # Already enabled
     
     def disable_plugin(self, plugin_name):
-        """
-        Disable a plugin by removing it from the enabled_plugins list
-        
-        Returns:
-            bool: True if the plugin was disabled, False otherwise
-        """
+        """Disable a plugin by removing it from the enabled_plugins list"""
         if plugin_name in self.settings['enabled_plugins']:
             self.settings['enabled_plugins'].remove(plugin_name)
             self.save_settings()
             
             # If this plugin is active, reset to local playback
-            if self.active_plugin == plugin_name:
-                self.clear_active_plugin()
+            is_active = self.active_plugin == plugin_name
+            if is_active:
+                # Publish source changed event before actually changing
+                if hasattr(self.player, 'event_bus'):
+                    self.player.event_bus.publish(self.player.SOURCE_CHANGED, {
+                        'previous_source': plugin_name,
+                        'new_source': 'local'
+                    })
                 
             # Remove from loaded plugins
             if plugin_name in self.plugins:
-                # Call shutdown method if it exists
+                # Get plugin instance
                 plugin_instance = self.plugins[plugin_name]['instance']
+                
+                # Unsubscribe from all events if event_bus exists
+                if hasattr(self.player, 'event_bus'):
+                    # Unsubscribe from standard events
+                    for event_type in [
+                        self.player.STATE_CHANGED,
+                        self.player.TRACK_CHANGED,
+                        self.player.SOURCE_CHANGED,
+                        self.player.POSITION_CHANGED,
+                        self.player.VOLUME_CHANGED,
+                        'on_play', 'on_pause', 'on_stop', 'on_playlist_loaded', 
+                        'on_volume_change', 'on_shutdown'
+                    ]:
+                        handler_name = event_type
+                        if event_type == self.player.STATE_CHANGED:
+                            handler_name = 'on_state_changed'
+                        elif event_type == self.player.TRACK_CHANGED:
+                            handler_name = 'on_track_changed'
+                        elif event_type == self.player.SOURCE_CHANGED:
+                            handler_name = 'on_source_changed'
+                        elif event_type == self.player.POSITION_CHANGED:
+                            handler_name = 'on_position_changed'
+                        elif event_type == self.player.VOLUME_CHANGED:
+                            handler_name = 'on_volume_changed'
+                            
+                        if hasattr(plugin_instance, handler_name):
+                            self.player.event_bus.unsubscribe(event_type, getattr(plugin_instance, handler_name))
+                
+                # Call shutdown method if it exists
                 if hasattr(plugin_instance, 'on_shutdown'):
                     try:
                         plugin_instance.on_shutdown({})
@@ -187,9 +229,13 @@ class PluginManager:
                 if plugin_name in self.available_plugins:
                     self.available_plugins[plugin_name]['loaded'] = False
                 
-            return True
-            
-        return False  # Not enabled
+                # After removing the plugin, actually clear active if needed
+                if is_active:
+                    self.clear_active_plugin()
+                    
+                return True
+                
+            return False  # Not enabled
     
     def set_auto_load(self, enabled):
         """Set whether plugins should be automatically loaded"""
@@ -211,51 +257,99 @@ class PluginManager:
     
     def set_active_plugin(self, plugin_name):
         """Set the currently active plugin"""
+        previous_plugin = self.active_plugin
+        
         if plugin_name == 'local':
             self.active_plugin = plugin_name
             self.player.playback_info['source'] = plugin_name
             self.player.playback_info['plugin_instance'] = None
+            
+            # Publish source changed event
+            if hasattr(self.player, 'event_bus') and previous_plugin != plugin_name:
+                self.player.event_bus.publish(self.player.SOURCE_CHANGED, {
+                    'previous_source': previous_plugin,
+                    'new_source': plugin_name
+                })
             return True
         elif plugin_name in self.plugins:
             self.active_plugin = plugin_name
             self.player.playback_info['source'] = plugin_name
             self.player.playback_info['plugin_instance'] = self.plugins[plugin_name]['instance']
+            
+            # Publish source changed event
+            if hasattr(self.player, 'event_bus') and previous_plugin != plugin_name:
+                self.player.event_bus.publish(self.player.SOURCE_CHANGED, {
+                    'previous_source': previous_plugin,
+                    'new_source': plugin_name
+                })
             return True
         return False
     
     def clear_active_plugin(self):
         """Clear the active plugin (set to local)"""
+        old_source = self.active_plugin
         self.active_plugin = 'local'
         self.player.playback_info['source'] = 'local'
         self.player.playback_info['plugin_instance'] = None
+        
+        # Publish source changed event if it's actually changing
+        if hasattr(self.player, 'event_bus') and old_source != 'local':
+            self.player.event_bus.publish(self.player.SOURCE_CHANGED, {
+                'previous_source': old_source,
+                'new_source': 'local'
+            })
+
+    def reset_playback_info_time(self):
+        """Reset the timestamp for playback info fetching"""
+        self.get_info_time = None
     
     def get_playback_info(self):
         """Get current playback information"""
         # If an external plugin is active, try to get updated info        
         current_info = self.player.playback_info.copy()
         if self.active_plugin != 'local' and self.active_plugin in self.plugins and current_info['state'] == 'PLAYING':
-            if self.get_info_time and (datetime.now() - self.get_info_time).total_seconds() < 5:
-                return self.player.playback_info
             plugin = self.plugins[self.active_plugin]['instance']
             if hasattr(plugin, 'get_current_playback'):
                 try:
                     plugin_info = plugin.get_current_playback()
-                    log.info(f"Plugin {self.active_plugin} playback info: {plugin_info}")
-                    print(f"Plugin {self.active_plugin} playback info: {plugin_info}")
                     if plugin_info:
-                        # Update our stored info with latest from plugin
-                        self.player.update_playback_info({
-                            'track_name': plugin_info.get('track_name', 'Unknown Track'),
+                        # Check for state change (playing/paused)
+                        state_changed = False
+                        new_state = 'PLAYING' if plugin_info.get('is_playing', False) else 'PAUSED'
+                        if new_state != current_info['state']:
+                            state_changed = True
+                        
+                        # Check for track change
+                        track_changed = False
+                        new_track = plugin_info.get('track_name', 'Unknown Track')
+                        if new_track != current_info['track_name']:
+                            track_changed = True
+                        
+                        # Update stored info with latest from plugin
+                        updated_info = {
+                            'track_name': new_track,
                             'artist': plugin_info.get('artist', ''),
                             'album': plugin_info.get('album', ''),
                             'position': plugin_info.get('progress_ms', 0) / 1000.0 if 'progress_ms' in plugin_info else plugin_info.get('position', 0),
                             'duration': plugin_info.get('duration_ms', 0) / 1000.0 if 'duration_ms' in plugin_info else plugin_info.get('duration', 0),
                             'genre': plugin_info.get('genre', ''),
                             'year': plugin_info.get('year', ''),
-                            'state': 'PLAYING' if plugin_info.get('is_playing', False) else 'PAUSED'
-                        })
-                    if self.get_info_time is None:
-                        self.get_info_time = datetime.now()
+                            'state': new_state
+                        }
+                        
+                        # Update the player's playback info
+                        self.player.update_playback_info(updated_info)
+                        
+                        # Detect position change for position event
+                        if hasattr(self.player, 'event_bus'):
+                            if abs(updated_info['position'] - current_info.get('position', 0)) > 1.0:
+                                self.player.event_bus.publish(self.player.POSITION_CHANGED, {
+                                    'position': updated_info['position'],
+                                    'duration': updated_info['duration']
+                                })
+                        
+                        if self.get_info_time is None:
+                            self.get_info_time = datetime.now()
                 except Exception as e:
                     print(f"Error getting playback info from plugin {self.active_plugin}: {e}")
         
@@ -301,47 +395,93 @@ class PluginManager:
     def ensure_exclusive_playback(self, new_source):
         """
         Ensures that only one source is playing at a time.
-        Pauses any currently playing source before setting a new active source.
+        """
+        # print(f"Ensuring exclusive playback for {new_source}")
         
-        Args:
-            new_source: The name of the new source to make active
-        
-        Returns:
-            bool: True if successful, False otherwise
-        """        
         # If current source is already the new source, nothing to do
         if self.active_plugin == new_source:
             return True
         
-        # Get current playback info
-        current_info = self.player.playback_info.copy()  # Copy to avoid reference issues
+        # Get current playback info and source
+        current_source = self.active_plugin
+        current_info = self.player.playback_info.copy()
         
-        # If something is currently playing, pause it before switching sources
-        if current_info['state'] == 'PLAYING':            
-            # Pause the current active source
-            if self.active_plugin == 'local':
-                # Get the player instance
-                if self.player:
-                    # Pause local playback directly
-                    if self.player.state == "PLAYING":
-                        pygame.mixer.music.pause()
-                        self.player.state = "PAUSED"
-                        
-                        # Update playback info
-                        self.player.update_playback_info({'state': 'PAUSED'})
+        # Debug info
+        # print(f"Current active source: {current_source}")
+        # print(f"Current state: {current_info.get('state')}")
+        
+        # Force stop all playback regardless of state
+        if current_source == 'local':
+            # Force stop local playback
+            # print("Stopping local playback...")
+            stop_result = self.player.media_handler.stop_audio()
+            # print(f"Stop audio result: {stop_result}")
+            self.player.state = 0  # Directly set to STOPPED (0)
+            self.player.update_playback_info({'state': 'STOPPED'})
             
-            elif self.active_plugin in self.plugins:
-                # A plugin is active, pause it
-                plugin_info = self.plugins[self.active_plugin]
-                if plugin_info and 'instance' in plugin_info:
-                    plugin = plugin_info['instance']
-                    if hasattr(plugin, 'pause'):
-                        try:
-                            plugin.pause([])
-                        except Exception as e:
-                            print(f"Error pausing plugin {self.active_plugin}: {e}")
+            # Publish events
+            if hasattr(self.player, 'event_bus'):
+                self.player.event_bus.publish('on_stop', {})
+                # Also publish the new standardized event
+                self.player.event_bus.publish(self.player.STATE_CHANGED, {
+                    'previous_state': current_info.get('state', 'UNKNOWN'),
+                    'new_state': 'STOPPED',
+                    'source': 'local'
+                })
+            
+            # Verify that playback has stopped
+            import time
+            time.sleep(0.2)  # Short delay to let audio system respond
+            
+            # Extra check for pygame
+            try:
+                import pygame
+                if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+                    print("WARNING: Pygame still playing after stop - forcing stop again")
+                    pygame.mixer.music.stop()
+                    time.sleep(0.2)  # Another short delay
+                    if pygame.mixer.music.get_busy():
+                        print("CRITICAL: Pygame still playing after second stop attempt!")
+                else:
+                    print("Pygame playback confirmed stopped")
+            except Exception as e:
+                print(f"Error checking pygame state: {e}")
+        
+        elif current_source in self.plugins:
+            # Force stop the active plugin
+            print(f"Stopping plugin {current_source}...")
+            plugin_info = self.plugins[current_source]
+            if plugin_info and 'instance' in plugin_info:
+                plugin = plugin_info['instance']
+                if hasattr(plugin, 'stop'):
+                    try:
+                        plugin.stop([])
+                        print(f"Plugin {current_source} stopped via stop method")
+                    except Exception as e:
+                        print(f"Error stopping plugin {current_source}: {e}")
+                elif hasattr(plugin, 'pause'):
+                    try:
+                        plugin.pause([])
+                        print(f"Plugin {current_source} stopped via pause method")
+                    except Exception as e:
+                        print(f"Error pausing plugin {current_source}: {e}")
+        
+        # For extra safety, try to force pygame to stop again
+        try:
+            import pygame
+            if pygame.mixer.get_init() and pygame.mixer.music.get_busy():
+                print("Forcing pygame music stop")
+                pygame.mixer.music.stop()
+                
+                # Another check to confirm
+                time.sleep(0.2)
+                if pygame.mixer.music.get_busy():
+                    print("WARNING: Pygame still playing after forced stop!")
+        except Exception as e:
+            print(f"Error stopping pygame directly: {e}")
         
         # Now set the new active source
+        print(f"Setting new active source: {new_source}")
         self.active_plugin = new_source
         self.player.playback_info['source'] = new_source
         
@@ -349,7 +489,15 @@ class PluginManager:
             self.player.playback_info['plugin_instance'] = self.plugins[new_source]['instance']
         else:
             self.player.playback_info['plugin_instance'] = None
-            
+        
+        # Publish source changed event
+        if hasattr(self.player, 'event_bus'):
+            self.player.event_bus.publish(self.player.SOURCE_CHANGED, {
+                'previous_source': current_source,
+                'new_source': new_source
+            })
+        
+        print(f"New active source set: {self.active_plugin}")
         return True
 
     def update_playback_info(self, info):

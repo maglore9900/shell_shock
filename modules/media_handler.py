@@ -34,6 +34,9 @@ class MediaHandler:
         self.last_update = None  # When index was last updated
         self.index_file = "media_index.json"  # Where to store the index
         
+        # Event bus reference (will be set by MusicPlayer)
+        self.event_bus = None
+        
         # Initialize pygame mixer if not already initialized
         if not pygame.mixer.get_init():
             pygame.mixer.init(frequency=44100)
@@ -41,6 +44,10 @@ class MediaHandler:
         # Load any existing index
         self._load_index()
     
+    def set_event_bus(self, event_bus):
+        """Set the event bus reference for publishing events."""
+        self.event_bus = event_bus
+        
     def get_supported_formats(self):
         """Get a list of all supported file formats."""
         return self.all_supported
@@ -55,30 +62,6 @@ class MediaHandler:
             directory = os.path.abspath(directory)
             if directory not in self.media_locations and os.path.exists(directory):
                 self.media_locations.append(directory)
-
-    def get_metadata_from_tags(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a media file.
-        
-        Args:
-            file_path (str): Path to the media file
-            
-        Returns:
-            Optional[Dict[str, Any]]: Metadata dictionary or None if not found
-        """
-        try:
-            tag: TinyTag = TinyTag.get(file_path)
-            return {
-                'title': tag.title,
-                'artist': tag.artist,
-                'album': tag.album,
-                'duration': tag.duration,
-                'bitrate': tag.bitrate,
-                'genre': tag.genre,
-                'year': tag.year,
-            }
-        except Exception as e:
-            log.error(f"Error getting metadata: {e}")
-            return None
 
     def get_metadata_from_file(self, file_path: str) -> Optional[Dict[str, Any]]:
         """Get metadata for a media file from the index.
@@ -99,9 +82,49 @@ class MediaHandler:
         data = {
             'track_name': track_name,
             'duration': duration,
-            }
-
+        }
+        
+        # Publish event if event bus is available
+        if hasattr(self, 'event_bus') and self.event_bus:
+            self.event_bus.publish('metadata_file_loaded', {
+                'file_path': file_path,
+                'metadata': data
+            })
+            
         return data
+
+    def get_metadata_from_tags(self, file_path: str) -> Optional[Dict[str, Any]]:
+        """Get metadata for a media file.
+        
+        Args:
+            file_path (str): Path to the media file
+            
+        Returns:
+            Optional[Dict[str, Any]]: Metadata dictionary or None if not found
+        """
+        try:
+            tag: TinyTag = TinyTag.get(file_path)
+            metadata = {
+                'title': tag.title,
+                'artist': tag.artist,
+                'album': tag.album,
+                'duration': tag.duration,
+                'bitrate': tag.bitrate,
+                'genre': tag.genre,
+                'year': tag.year,
+            }
+            
+            # Publish event if event bus is available
+            if hasattr(self, 'event_bus') and self.event_bus:
+                self.event_bus.publish('metadata_tags_loaded', {
+                    'file_path': file_path,
+                    'metadata': metadata
+                })
+                
+            return metadata
+        except Exception as e:
+            log.error(f"Error getting metadata: {e}")
+            return None
 
     def remove_media_location(self, directory):
         """Remove a location from the index.
@@ -459,17 +482,37 @@ class MediaHandler:
             playable_file = self.convert_if_needed(file_path)
             if not playable_file:
                 print(f"Cannot play {os.path.basename(file_path)}: format not supported")
+                # Publish failure event if event bus is available
+                if self.event_bus:
+                    self.event_bus.publish('media_play_failed', {
+                        'file_path': file_path,
+                        'reason': 'format_not_supported'
+                    })
                 return False, None
             
             # Load and play the file
             pygame.mixer.music.load(playable_file)
             pygame.mixer.music.play(loops, start_pos)
             
+            # Publish play event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_play_started', {
+                    'file_path': file_path,
+                    'playable_file': playable_file,
+                    'start_position': start_pos
+                })
+            
             # Return success and temp file path if one was created
             temp_file = playable_file if playable_file != file_path else None
             return True, temp_file
         except Exception as e:
             print(f"Error playing audio: {e}")
+            # Publish error event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_play_error', {
+                    'file_path': file_path,
+                    'error': str(e)
+                })
             return False, None
 
     def pause_audio(self):
@@ -481,9 +524,17 @@ class MediaHandler:
         """
         try:
             pygame.mixer.music.pause()
+            # Publish pause event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_paused', {})
             return True
         except Exception as e:
             print(f"Error pausing audio: {e}")
+            # Publish error event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_pause_error', {
+                    'error': str(e)
+                })
             return False
 
     def resume_audio(self):
@@ -495,21 +546,29 @@ class MediaHandler:
         """
         try:
             pygame.mixer.music.unpause()
+            # Publish resume event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_resumed', {})
             return True
         except Exception as e:
             print(f"Error resuming audio: {e}")
+            # Publish error event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_resume_error', {
+                    'error': str(e)
+                })
             return False
 
     def stop_audio(self):
-        """
-        Stop audio playback.
-        
-        Returns:
-            bool: True if successful
-        """
+        """Stop audio playback."""
         try:
-            pygame.mixer.music.stop()
-            return True
+            # Check if pygame is initialized before stopping
+            if pygame.get_init() and pygame.mixer.get_init():
+                pygame.mixer.music.stop()
+                return True
+            else:
+                # Already stopped or never initialized
+                return True
         except Exception as e:
             print(f"Error stopping audio: {e}")
             return False
@@ -527,10 +586,59 @@ class MediaHandler:
         try:
             volume = max(0.0, min(1.0, volume))
             pygame.mixer.music.set_volume(volume)
+            # Publish volume change event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_volume_changed', {
+                    'volume': volume
+                })
             return True
         except Exception as e:
             print(f"Error setting volume: {e}")
+            # Publish error event if event bus is available
+            if self.event_bus:
+                self.event_bus.publish('media_volume_error', {
+                    'error': str(e)
+                })
             return False
+        
+    def report_position(self):
+        """
+        Report the current playback position to the event bus.
+        Should be called periodically by the player.
+        
+        Returns:
+            float: Position in seconds
+        """
+        if not self.event_bus:
+            return -1
+            
+        try:
+            pos = self.get_audio_position()
+            if pos > 0:
+                pos_seconds = pos / 1000.0  # Convert to seconds
+                self.event_bus.publish('media_position_changed', {
+                    'position': pos_seconds
+                })
+                return pos_seconds
+            return -1
+        except Exception as e:
+            print(f"Error reporting position: {e}")
+            return -1
+    
+    def check_playback_ended(self):
+        """
+        Check if playback has ended and publish an event if it has.
+        
+        Returns:
+            bool: True if playback has ended
+        """
+        if not self.event_bus:
+            return False
+            
+        if not pygame.mixer.music.get_busy():
+            self.event_bus.publish('media_playback_ended', {})
+            return True
+        return False
 
     def is_audio_playing(self):
         """

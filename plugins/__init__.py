@@ -57,9 +57,30 @@ class BasePlugin(ABC, Generic[T]):
         self.initialized = True
         self.current_track = None
         self.track_start_time = 0
-        # self.is_paused = False
+        self.current_state = 'STOPPED'  # Track the plugin's internal state
         self.current_temp_file = None  # For tracking temporary audio files
         self.paused_position = 0  # Track position when paused
+        
+        # Subscribe to both new and legacy events if event bus exists
+        if hasattr(player, 'event_bus'):
+            # Standard player events
+            for event_type, handler_name in [
+                (player.STATE_CHANGED, 'on_state_changed'),
+                (player.TRACK_CHANGED, 'on_track_changed'),
+                (player.SOURCE_CHANGED, 'on_source_changed'),
+                (player.POSITION_CHANGED, 'on_position_changed'),
+                (player.VOLUME_CHANGED, 'on_volume_changed'),
+                # Legacy events for backward compatibility
+                ('on_play', 'on_play'),
+                ('on_pause', 'on_pause'),
+                ('on_stop', 'on_stop'),
+                ('on_playlist_loaded', 'on_playlist_loaded'),
+                ('on_volume_change', 'on_volume_change'),
+                ('on_shuffle_change', 'on_shuffle_change'),
+                ('on_shutdown', 'on_shutdown')
+            ]:
+                if hasattr(self, handler_name):
+                    player.event_bus.subscribe(event_type, getattr(self, handler_name))
     
     def is_available(self):
         """Check if the plugin is available for use"""
@@ -67,35 +88,38 @@ class BasePlugin(ABC, Generic[T]):
     
     # Common state management
     def set_as_active(self):
-        """Set this plugin as the active source"""
-        return self.player.plugin_manager.set_active_plugin(self.plugin_id)
+        """Set this plugin as the active source and ensure exclusive playback"""
+        if self.player.plugin_manager.get_active_plugin() != self.plugin_id:
+            # Request exclusive playback first
+            result = self.player.plugin_manager.ensure_exclusive_playback(self.plugin_id)
+            if not result:
+                print(f"Failed to get exclusive playback for {self.plugin_id}")
+                return False
+            return True
+        return True
     
     def update_playback_state(self, state_dict):
         """Update playback state in the plugin manager"""
+        # Track state change internally
+        if 'state' in state_dict:
+            self.current_state = state_dict['state']
+            
+        # Update the player's playback info
         self.player.plugin_manager.update_playback_info(state_dict)
     
     def handle_state_transition(self, action_func, args=None, wait_time=0.5, state_update=None):
         """
         Handle common pattern of action + state update for any plugin type
-        
-        Parameters:
-        -----------
-        action_func : function
-            The function to execute (play, pause, etc.)
-        args : list, optional
-            Arguments to pass to the action function
-        wait_time : float, optional
-            Time to wait after action for state to settle (useful for API calls)
-        state_update : dict, optional
-            Explicit state updates to apply after the action
-        
-        Returns:
-        --------
-        Result of the action function or None if an error occurred
         """
         try:
-            # Set this plugin as active
-            self.set_as_active()
+            # Ensure this plugin has exclusive playback
+            if not self.set_as_active():
+                print(f"Cannot transition state: failed to set {self.plugin_id} as active source")
+                return False
+            
+            # Reset playback info time to ensure fresh data
+            if hasattr(self.player.plugin_manager, 'reset_playback_info_time'):
+                self.player.plugin_manager.reset_playback_info_time()
             
             # Execute the action
             result = action_func(*args) if args else action_func()
@@ -106,6 +130,24 @@ class BasePlugin(ABC, Generic[T]):
             
             # Update playback info
             if state_update:
+                # Track state change internally
+                if 'state' in state_update:
+                    old_state = self.current_state
+                    self.current_state = state_update['state']
+                    
+                    # Store track start time if transitioning to PLAYING
+                    if self.current_state == 'PLAYING' and old_state != 'PLAYING':
+                        self.track_start_time = time.time() - self.paused_position
+                    
+                    # Store paused position if transitioning to PAUSED
+                    if self.current_state == 'PAUSED' and old_state == 'PLAYING':
+                        self.paused_position = self.get_audio_position()
+                    
+                    # Reset position if transitioning to STOPPED
+                    if self.current_state == 'STOPPED':
+                        self.paused_position = 0
+                        self.track_start_time = 0
+                
                 self.update_playback_state(state_update)
             else:
                 self.update_playback_info()
@@ -115,24 +157,22 @@ class BasePlugin(ABC, Generic[T]):
             print(f"Error executing {action_func.__name__ if hasattr(action_func, '__name__') else 'action'}: {e}")
             return None
     
-    # Standard media player controls - to be implemented by subclasses
     def play(self, args):
-        """
-        Overarching play command used by cli to call actions to plugins
-        """
+        """Overarching play command used by cli to call actions to plugins"""
         try:
             if not self._can_play():
                 print(f"Cannot play: {self.name} plugin not ready")
                 return False
             
-            # Call the plugin-specific implementation and handle state transition
-            return self.handle_state_transition(
-                lambda: self._play_impl(args),
-                wait_time=0.5,
-                state_update={'state': 'PLAYING'}
-            )
+            # Ensure this plugin is the active source
+            if not self.set_as_active():
+                print(f"Failed to set {self.name} as active source")
+                return False
+                
+            # Call the plugin-specific implementation
+            return self._play_impl(args)
         except Exception as e:
-            print(f"Error going to play: {e}")
+            print(f"Error in play: {e}")
             return False
     
     def pause(self, args):
@@ -210,7 +250,6 @@ class BasePlugin(ABC, Generic[T]):
             print(f"Error going to previous: {e}")
             return False
     
-    # Add to BasePlugin class in __init__.py
     def volume(self, args):
         """
         Standard volume control implementation.
@@ -226,7 +265,7 @@ class BasePlugin(ABC, Generic[T]):
                 return self.handle_state_transition(
                     lambda: self._set_volume_impl(volume),
                     wait_time=0.5,
-                    state_update={'volume': volume}
+                    state_update={'volume': volume / 100.0}  # Normalize to 0-1
                 )
             else:
                 print("Volume must be between 0 and 100")
@@ -268,7 +307,12 @@ class BasePlugin(ABC, Generic[T]):
     
     def _is_playing(self):
         """Check if this plugin is currently playing"""
-        return self._is_active() and self.player.plugin_manager.get_playback_info()['state'] == 'PLAYING'
+        if not self._is_active():
+            return False
+            
+        # Use plugin manager's playback info for consistent state
+        playback_info = self.player.plugin_manager.get_playback_info()
+        return playback_info['state'] == 'PLAYING'
     
     def _is_active(self):
         """Check if this plugin is the active plugin"""
@@ -298,38 +342,196 @@ class BasePlugin(ABC, Generic[T]):
         """
         return None
     
-    # Event handlers (can be overridden)
+    # Standard event handlers - centralized in the base class
+    def on_state_changed(self, data):
+        """Called when player state changes"""
+        # Only handle if we're the active source
+        if self._is_active():
+            # Update our internal state
+            self.current_state = data['new_state']
+            # Call plugin-specific hook
+            self.on_state_changed_hook(data)
+    
+    def on_track_changed(self, data):
+        """Called when track changes"""
+        # Only handle if we're the active source
+        if self._is_active():
+            # Update our internal tracking
+            self.current_track = data.get('track_name')
+            # Reset tracking variables
+            if self.current_state == 'PLAYING':
+                self.track_start_time = time.time()
+                self.paused_position = 0
+            # Call plugin-specific hook
+            self.on_track_changed_hook(data)
+    
+    def on_source_changed(self, data):
+        """Called when audio source changes"""
+        previous_source = data.get('previous_source')
+        new_source = data.get('new_source')
+        
+        # If we're losing active status, stop any playback
+        if previous_source == self.plugin_id and new_source != self.plugin_id:
+            self.stop_audio()
+            # Call plugin-specific hook
+            self.on_source_changed_hook(data)
+    
+    def on_position_changed(self, data):
+        """Called when playback position changes"""
+        # Only handle if we're the active source
+        if self._is_active():
+            position = data.get('position', 0)
+            # If position jumped significantly, adjust our tracking
+            if abs(position - self.get_audio_position()) > 1.0:
+                if self.current_state == 'PLAYING':
+                    self.track_start_time = time.time() - position
+                elif self.current_state == 'PAUSED':
+                    self.paused_position = position
+            # Call plugin-specific hook
+            self.on_position_changed_hook(data)
+    
+    def on_volume_changed(self, data):
+        """Called when volume changes"""
+        # Only handle if we're the active source
+        if self._is_active():
+            new_volume = data.get('new_volume', 0)
+            self._set_volume_impl(int(new_volume * 100))
+            # Call plugin-specific hook
+            self.on_volume_changed_hook(data)
+    
+    # Legacy event handlers
     def on_play(self, data):
         """Called when a track starts playing"""
-        pass
+        # Only handle if we're the active source
+        if self._is_active():
+            # Update internal state tracking
+            self.current_state = 'PLAYING'
+            self.track_start_time = time.time() - self.paused_position
+            self.paused_position = 0
+            # Call plugin-specific hook
+            self.on_play_hook(data)
     
     def on_pause(self, data):
         """Called when playback is paused"""
-        pass
+        # Only handle if we're the active source
+        if self._is_active():
+            # Update internal state tracking
+            self.current_state = 'PAUSED'
+            self.paused_position = self.get_audio_position()
+            # Call plugin-specific hook
+            self.on_pause_hook(data)
     
     def on_stop(self, data):
         """Called when playback is stopped"""
-        pass
+        # Only handle if we're the active source
+        if self._is_active():
+            # Update internal state tracking
+            self.current_state = 'STOPPED'
+            self.track_start_time = 0
+            self.paused_position = 0
+            self.cleanup_temp_file()
+            # Call plugin-specific hook
+            self.on_stop_hook(data)
     
     def on_playlist_loaded(self, data):
         """Called when a playlist is loaded"""
-        pass
+        # Call plugin-specific hook
+        self.on_playlist_loaded_hook(data)
     
     def on_volume_change(self, data):
         """Called when volume is changed"""
-        pass
+        # Only handle if we're the active source
+        if self._is_active():
+            volume = data.get('volume', 0)
+            self._set_volume_impl(int(volume * 100))
+            # Call plugin-specific hook
+            self.on_volume_change_hook(data)
+    
+    def on_shuffle_change(self, data):
+        """Called when shuffle mode changes"""
+        # Call plugin-specific hook
+        self.on_shuffle_change_hook(data)
     
     def on_now(self, data):
         """Called when the current track is requested"""
-        pass
+        # Only handle if we're the active source
+        if self._is_active():
+            # Make sure our playback info is up-to-date
+            self.update_playback_info()
+            # Call plugin-specific hook
+            self.on_now_hook(data)
     
     def on_shutdown(self, data):
         """Called when the player is shutting down"""
         self.stop([])
+        self.cleanup_temp_file()
+        # Call plugin-specific hook
+        self.on_shutdown_hook(data)
+    
+    # Hook methods that plugins can override without reimplementing event handlers
+    def on_state_changed_hook(self, data):
+        """Override this to handle state changes"""
+        pass
+    
+    def on_track_changed_hook(self, data):
+        """Override this to handle track changes"""
+        pass
+    
+    def on_source_changed_hook(self, data):
+        """Override this to handle source changes"""
+        pass
+    
+    def on_position_changed_hook(self, data):
+        """Override this to handle position changes"""
+        pass
+    
+    def on_volume_changed_hook(self, data):
+        """Override this to handle volume changes"""
+        pass
+    
+    def on_play_hook(self, data):
+        """Override this to handle play events"""
+        pass
+    
+    def on_pause_hook(self, data):
+        """Override this to handle pause events"""
+        pass
+    
+    def on_stop_hook(self, data):
+        """Override this to handle stop events"""
+        pass
+    
+    def on_playlist_loaded_hook(self, data):
+        """Override this to handle playlist loaded events"""
+        pass
+    
+    def on_volume_change_hook(self, data):
+        """Override this to handle volume change events"""
+        pass
+    
+    def on_shuffle_change_hook(self, data):
+        """Override this to handle shuffle mode changes"""
+        pass
+    
+    def on_now_hook(self, data):
+        """Override this to handle now playing requests"""
+        pass
+    
+    def on_shutdown_hook(self, data):
+        """Override this to handle shutdown events"""
+        pass
     
     def command_help(self):
         """Return help text for plugin commands"""
-        return "No commands available"
+        return """
+Available commands:
+  play        - Start/resume playback
+  pause       - Pause playback
+  stop        - Stop playback
+  next        - Skip to next track
+  prev        - Go to previous track
+  volume <0-100> - Set volume level
+"""
     
     def update_playback_state_from_info(self, playback_info):
         """
@@ -353,7 +555,14 @@ class BasePlugin(ABC, Generic[T]):
                 'album': playback_info.get('album', None),
                 'position': playback_info.get('position', 0),
                 'duration': playback_info.get('duration', 0),
+                'genre': playback_info.get('genre', None),
+                'year': playback_info.get('year', None),
+                'state': playback_info.get('state', self.current_state)
             }
+            
+            # Track state change internally
+            if 'state' in playback_info:
+                self.current_state = playback_info['state']
             
             # Update the plugin manager with our standardized info
             self.player.plugin_manager.update_playback_info(standardized_info)
@@ -361,30 +570,32 @@ class BasePlugin(ABC, Generic[T]):
     def play_audio_file(self, file_path, loops=0):
         """
         Helper method to play an audio file using the media handler.
-        Useful for plugins that need to play local audio files.
-        
-        Args:
-            file_path (str): Path to the audio file
-            start_pos (float): Start position in seconds
-            loops (int): Number of times to repeat (-1 for infinite)
-            
-        Returns:
-            tuple: (success, temp_file)
         """
-        # Set this plugin as active before playing
-        self.set_as_active()
+        # Ensure exclusive playback for this plugin
+        if not self.set_as_active():
+            print(f"Failed to get exclusive playback for {self.plugin_id}")
+            return False, None
+            
         start_pos = self.paused_position if self.paused_position and self.paused_position > 0 else 0.0
+        
         # Use media handler to play the file
         success, temp_file = self.player.media_handler.play_audio(file_path, start_pos, loops)
         
         # Store temp file for later cleanup
         if success and temp_file:
+            # If we already had a temp file, clean it up
+            self.cleanup_temp_file()
             self.current_temp_file = temp_file
             
         # Store start time for position tracking
         if success:
             self.track_start_time = time.time() - start_pos
-            # self.is_paused = False
+            self.current_state = 'PLAYING'
+            
+            # Update playback info
+            self.player.plugin_manager.update_playback_info({
+                'state': 'PLAYING'
+            })
             
         return success, temp_file
 
@@ -397,8 +608,14 @@ class BasePlugin(ABC, Generic[T]):
         """
         result = self.player.media_handler.pause_audio()
         if result:
-            # self.is_paused = True
+            self.current_state = 'PAUSED'
             self.paused_position = self.get_audio_position()
+            
+            # Update playback info
+            self.player.plugin_manager.update_playback_info({
+                'state': 'PAUSED'
+            })
+            
         return result
 
     def resume_audio(self):
@@ -409,11 +626,18 @@ class BasePlugin(ABC, Generic[T]):
             bool: True if successful
         """
         result = self.player.media_handler.resume_audio()
-        if result and self.is_paused:
-            # self.is_paused = False
+        if result:
+            self.current_state = 'PLAYING'
+            
             # Adjust start time to maintain correct position tracking
             current_time = time.time()
             self.track_start_time = current_time - self.paused_position
+            
+            # Update playback info
+            self.player.plugin_manager.update_playback_info({
+                'state': 'PLAYING'
+            })
+            
         return result
 
     def stop_audio(self):
@@ -424,8 +648,16 @@ class BasePlugin(ABC, Generic[T]):
             bool: True if successful
         """
         result = self.player.media_handler.stop_audio()
-        # self.cleanup_temp_file()
-        # self.is_paused = False
+        self.cleanup_temp_file()
+        self.current_state = 'STOPPED'
+        self.paused_position = 0
+        self.track_start_time = 0
+        
+        # Update playback info
+        self.player.plugin_manager.update_playback_info({
+            'state': 'STOPPED'
+        })
+        
         return result
 
     def set_audio_volume(self, volume):
@@ -456,8 +688,8 @@ class BasePlugin(ABC, Generic[T]):
         Returns:
             float: Current position in seconds
         """
-        # if self.is_paused:
-        #     return self.paused_position
+        if self.current_state == 'PAUSED':
+            return self.paused_position
             
         # Get position from pygame via media handler
         pos_ms = self.player.media_handler.get_audio_position()
