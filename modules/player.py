@@ -6,13 +6,54 @@ import threading
 import pygame
 import random
 from enum import Enum
-from pathlib import Path
-from pydub import AudioSegment  
+from typing import Dict, List, Callable, Any
 from modules.media_handler import MediaHandler
 from modules.playlist_handler import PlaylistHandler
 from modules.plugin_manager import PluginManager
 
 from modules.logging_utils import log_function_call, app_logger as log
+
+class EventBus:
+    def __init__(self):
+        self._listeners: Dict[str, List[Callable]] = {}
+        self._lock = threading.Lock()
+    
+    def subscribe(self, event_type: str, callback: Callable) -> None:
+        with self._lock:
+            if event_type not in self._listeners:
+                self._listeners[event_type] = []
+            self._listeners[event_type].append(callback)
+    
+    def unsubscribe(self, event_type: str, callback: Callable) -> bool:
+        with self._lock:
+            if event_type in self._listeners and callback in self._listeners[event_type]:
+                self._listeners[event_type].remove(callback)
+                return True
+            return False
+    
+    def publish(self, event_type: str, data: Any = None, callback: Callable = None, 
+                callback_args: tuple = None, callback_kwargs: dict = None) -> None:
+        callback_args = callback_args or ()
+        callback_kwargs = callback_kwargs or {}
+            
+        with self._lock:
+            if event_type in self._listeners:
+                for listener in self._listeners[event_type]:
+                    threading.Thread(
+                        target=self._safe_callback_execution,
+                        args=(listener, data)
+                    ).start()
+                    
+        if callback:
+            threading.Thread(
+                target=lambda: callback(*callback_args, **callback_kwargs)
+            ).start()
+    
+    def _safe_callback_execution(self, callback, data):
+        try:
+            callback(data)
+        except Exception as e:
+            print(f"Error in event callback: {e}")
 
 class PlayerState(Enum):
     STOPPED = 0
@@ -29,7 +70,12 @@ def clear_screen():
 clear_screen()
 
 class MusicPlayer:
-    """Core music player functionality"""             
+    """Core music player functionality"""   
+    STATE_CHANGED = 'state_changed'
+    SOURCE_CHANGED = 'source_changed'
+    TRACK_CHANGED = 'track_changed'
+    POSITION_CHANGED = 'position_changed'
+    VOLUME_CHANGED = 'volume_changed'          
     def __init__(self, env):
         """Initialize the music player"""
         self.MUSIC_LIBRARY_PATH = env("MUSIC_LIBRARY_PATH", default=None)
@@ -39,10 +85,8 @@ class MusicPlayer:
         self.PLAYLISTS_PATH = env("PLAYLISTS_PATH", default="playlists")
         self.PLUGINS_PATH = env("PLUGINS_PATH", default="plugins")
         self.env = env
-        
-        # log.info("Initialize Handlers")
-        # Initialize handlers
-        self.media_handler = MediaHandler()  # This now initializes pygame.mixer inside
+        self.event_bus = EventBus()
+        self.media_handler = MediaHandler()  
         pygame.init()  # Only initialize other pygame components
         
         # Player state
@@ -66,7 +110,6 @@ class MusicPlayer:
             'plugin_instance': None  # Reference to the active plugin instance
         }
         
-        
         # Set initial volume
         volume_setting = env("DEFAULT_VOLUME", default=70)
         self.volume = volume_setting / 100.0 if volume_setting > 1 else volume_setting
@@ -84,7 +127,7 @@ class MusicPlayer:
         # log.info("initialize plugin manager")
         # Create the plugin manager - ONLY ONCE with a reference to this player
         self.plugin_manager = PluginManager(player_instance=self)
-        
+        self.plugin_manager.set_active_plugin('local')
         # log.info("scan plugins")
         # Scan plugins directory to find available plugins
         self.plugins_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), self.PLUGINS_PATH)
@@ -146,13 +189,77 @@ class MusicPlayer:
                 random.shuffle(self.playlist)
             
             # Notify plugins
-            self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
+            self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
         
+    def set_player_state(self, state):
+        """Update both the enum state and the playback_info state consistently"""
+        old_state = self.state
+        
+        # Update the enum state
+        self.state = state
+        
+        # Get the string representation for playback_info
+        state_str = {
+            PlayerState.PLAYING: 'PLAYING',
+            PlayerState.PAUSED: 'PAUSED',
+            PlayerState.STOPPED: 'STOPPED'
+        }[state]
+        
+        # Update playback_info and trigger events
+        if old_state != state:
+            self.update_playback_info({'state': state_str})
+
     def update_playback_info(self, info):
-        """Update playback information"""
+        """Update playback information and publish relevant events"""
+        # Track what fields are changing
+        state_changed = False
+        source_changed = False
+        track_changed = False
+        
+        # Check for specific changes
+        if 'state' in info and info['state'] != self.playback_info['state']:
+            state_changed = True
+            
+            # If state string is changing, update the enum state too
+            state_map = {
+                'PLAYING': PlayerState.PLAYING,
+                'PAUSED': PlayerState.PAUSED,
+                'STOPPED': PlayerState.STOPPED
+            }
+            if info['state'] in state_map and self.state != state_map[info['state']]:
+                self.state = state_map[info['state']]
+        
+        if 'source' in info and info['source'] != self.playback_info['source']:
+            source_changed = True
+                
+        if 'track_name' in info and info['track_name'] != self.playback_info['track_name']:
+            track_changed = True
+        
+        # Update the playback info
         for key, value in info.items():
             if key in self.playback_info:
                 self.playback_info[key] = value
+        
+        # Publish relevant events
+        if state_changed:
+            self.event_bus.publish(self.STATE_CHANGED, {
+                'previous_state': self.playback_info['state'],
+                'new_state': info['state'],
+                'source': self.playback_info['source']
+            })
+        
+        if source_changed:
+            self.event_bus.publish(self.SOURCE_CHANGED, {
+                'previous_source': self.playback_info['source'],
+                'new_source': info['source']
+            })
+                
+        if track_changed:
+            self.event_bus.publish(self.TRACK_CHANGED, {
+                'track_name': info['track_name'],
+                'artist': self.playback_info.get('artist'),
+                'album': self.playback_info.get('album')
+            })
 
     def _start_event_loop(self):
         """Start the event handling thread"""
@@ -162,8 +269,11 @@ class MusicPlayer:
                 # Check if music has finished playing
                 if self.state == PlayerState.PLAYING and not pygame.mixer.music.get_busy():
                     # Track finished playing
+                    old_state = self.state
                     self.state = PlayerState.STOPPED
-
+                    
+                    # Publish state change event
+                    self.update_playback_info({'state': 'STOPPED'})
                     
                     # Auto-play next track
                     if self.playlist and len(self.playlist) > 0:
@@ -172,9 +282,20 @@ class MusicPlayer:
                             self.current_index = (random.randint(0, len(self.playlist)) +1) % len(self.playlist)
                         else:
                             self.current_index = (self.current_index + 1) % len(self.playlist)
-                        # Play it
+                        
+                        # Update the current track and publish track change event
+                        old_track = self.current_track
                         self.current_track = self.playlist[self.current_index]
-                        self.play()                
+                        
+                        # Only publish track change if it's a different track
+                        if old_track != self.current_track:
+                            self.event_bus.publish(self.TRACK_CHANGED, {
+                                'previous_track': old_track,
+                                'new_track': self.current_track
+                            })
+                        
+                        # Play it
+                        self.play()
                 time.sleep(0.1)
         
         # Start the event thread
@@ -182,18 +303,23 @@ class MusicPlayer:
         self.event_thread.daemon = True
         self.event_thread.start()
 
+
     @log_function_call
     def prepare_plugin_playback(self, plugin_name):
         """
         Prepare for a plugin to start playback by pausing any currently playing sources
         and setting the plugin as active.
-        
-        Args:
-            plugin_name: The name of the plugin that wants to start playback
-            
-        Returns:
-            bool: True if successful, False otherwise
         """
+        # First notify all sources that a new source is about to play
+        self.event_bus.publish(self.SOURCE_CHANGED, {
+            'previous_source': self.plugin_manager.get_active_plugin(),
+            'new_source': plugin_name
+        })
+        
+        # For backward compatibility
+        self.event_bus.publish('prepare_for_playback', {'new_source': plugin_name})
+        
+        # Let the plugin manager handle the source switching
         return self.plugin_manager.ensure_exclusive_playback(plugin_name)
 
     def load_plugins(self):
@@ -265,14 +391,14 @@ class MusicPlayer:
         
     def play(self):
         """Start or resume playback."""
-        # Before playing local, ensure exclusive playback
+        # First ensure this source (local) has exclusive playback
         self.plugin_manager.ensure_exclusive_playback('local')
         
         # Now proceed with normal play logic based on current state
         if self.state == PlayerState.STOPPED:
             if self.playlist and self.current_index < len(self.playlist):
                 self.current_track = self.playlist[self.current_index]
-                print(f"Playing track: {os.path.basename(self.current_track)}")
+                # print(f"Playing track: {os.path.basename(self.current_track)}")
                 
                 # Get track duration before playing
                 self.current_track_length = self.media_handler.get_track_duration(self.current_track)
@@ -286,16 +412,28 @@ class MusicPlayer:
                 self.track_start_time = time.time()
                 self.state = PlayerState.PLAYING
                 
-                # Update play stats and notify plugins
+                # Update playback info and publish state events
+                self.update_playback_info({
+                    'state': 'PLAYING',
+                    'track_name': os.path.basename(self.current_track),
+                    'source': 'local'
+                })
+                
+                # Make sure plugin manager knows local is the active source
+                self.plugin_manager.set_active_plugin('local')
+                
+                # Update play stats
                 self.media_handler.update_play_stats(self.current_track)
-                self._notify_plugins('on_play', {'track': self.current_track})
+                
+                # For backward compatibility, still publish the on_play event
+                self.event_bus.publish('on_play', {'track': self.current_track})
             else:
                 print("No tracks in playlist")
         elif self.state == PlayerState.PAUSED:
             self.media_handler.resume_audio()
             self.state = PlayerState.PLAYING
             
-            # Update playback state in plugin manager
+            # Update playback state and publish state event
             self.update_playback_info({'state': 'PLAYING'})
                 
     def get_current_playback(self):
@@ -348,14 +486,14 @@ class MusicPlayer:
         active_plugin = self.plugin_manager.get_active_plugin()
         
         if active_plugin == 'local' and self.state == PlayerState.PLAYING:
-            self.media_handler.pause_audio()  # Use new method
+            self.media_handler.pause_audio()
             self.state = PlayerState.PAUSED
             
-            # Update plugin manager
+            # Update playback info and publish state event
             self.update_playback_info({'state': 'PAUSED'})
             
-            # Notify plugins
-            self._notify_plugins('on_pause', {})
+            # For backward compatibility
+            self.event_bus.publish('on_pause', {})
             
         elif active_plugin != 'local':
             # Let the plugin handle it
@@ -369,14 +507,14 @@ class MusicPlayer:
         active_plugin = self.plugin_manager.get_active_plugin()
         
         if active_plugin == 'local':
-            self.media_handler.stop_audio()  # Use new method
+            self.media_handler.stop_audio()
             self.state = PlayerState.STOPPED
             
-            # Update plugin manager
+            # Update playback info and publish state event
             self.update_playback_info({'state': 'STOPPED'})
             
-            # Notify plugins
-            self._notify_plugins('on_stop', {})
+            # For backward compatibility
+            self.event_bus.publish('on_stop', {})
             
         elif active_plugin != 'local':
             # Let the plugin handle it
@@ -472,14 +610,14 @@ class MusicPlayer:
         
         return status
     
-    def _notify_plugins(self, event_name, data):
-        """Notify all plugins about an event."""
-        for plugin_name, plugin in self.plugins.items():
-            if hasattr(plugin, event_name):
-                try:
-                    getattr(plugin, event_name)(data)
-                except Exception as e:
-                    print(f"Error in plugin {plugin_name} handling {event_name}: {e}")
+    # def _notify_plugins(self, event_name, data):
+    #     """Notify all plugins about an event."""
+    #     for plugin_name, plugin in self.plugins.items():
+    #         if hasattr(plugin, event_name):
+    #             try:
+    #                 getattr(plugin, event_name)(data)
+    #             except Exception as e:
+    #                 print(f"Error in plugin {plugin_name} handling {event_name}: {e}")
     
     def shutdown(self):
         """Clean shutdown of the player."""
@@ -497,23 +635,8 @@ class MusicPlayer:
         # Set local as active to prevent plugin conflicts during shutdown
         self.plugin_manager.set_active_plugin('local')
         
-        # Notify all plugins about shutdown, with special handling for the previously active plugin
-        plugins_to_notify = list(self.plugins.items())
-        
-        # First notify non-active plugins
-        for plugin_name, plugin in plugins_to_notify:
-            if plugin_name != active_plugin and hasattr(plugin, 'on_shutdown'):
-                try:
-                    plugin.on_shutdown({})
-                except Exception as e:
-                    print(f"Warning shutting down plugin {plugin_name}: {e}")
-        
-        # Finally notify the previously active plugin
-        if active_plugin in self.plugins and hasattr(self.plugins[active_plugin], 'on_shutdown'):
-            try:
-                self.plugins[active_plugin].on_shutdown({})
-            except Exception as e:
-                print(f"Warning shutting down active plugin {active_plugin}: {e}")
+        # Notify all plugins about shutdown using event bus
+        self.event_bus.publish('on_shutdown', {})
         
         # Clean up media handler
         try:
@@ -528,8 +651,19 @@ class MusicPlayer:
 
     def set_volume(self, volume):
         """Set the volume level (0.0 to 1.0)."""
+        old_volume = self.volume
         self.volume = max(0.0, min(1.0, volume))
-        self.media_handler.set_audio_volume(self.volume)  # Use new method
+        self.media_handler.set_audio_volume(self.volume)
+        
+        # Publish volume changed event
+        self.event_bus.publish(self.VOLUME_CHANGED, {
+            'previous_volume': old_volume,
+            'new_volume': self.volume
+        })
+        
+        # For backward compatibility
+        self.event_bus.publish('on_volume_change', {'volume': self.volume})
+        
         return self.volume
 
     def scan_playlists(self):
@@ -564,7 +698,7 @@ class MusicPlayer:
         #     random.shuffle(self.playlist)
         
         # Notify plugins
-        self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
+        self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
         
         print(f"\nLoaded playlist: {playlist_name} ({len(self.playlist)} tracks)")
         return True
@@ -687,7 +821,7 @@ class MusicPlayer:
         #                     self.current_index = 0
         
         # Notify plugins about shuffle mode change
-        self._notify_plugins('on_shuffle_change', {'shuffle': self.shuffle_mode})
+        self.event_bus.publish('on_shuffle_change', {'shuffle': self.shuffle_mode})
         
         status = "enabled" if self.shuffle_mode else "disabled"
         return status
@@ -727,7 +861,7 @@ class MusicPlayer:
             #     random.shuffle(self.playlist)
             
             # Notify plugins
-            self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
+            self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
             
             return True
         else:
@@ -767,7 +901,7 @@ class MusicPlayer:
                 self.current_index = 0
             
             # Notify plugins
-            self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
+            self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
             
             return True
         else:
@@ -809,6 +943,6 @@ class MusicPlayer:
                 self.playlist.append(track)
         
         # Notify plugins
-        self._notify_plugins('on_playlist_loaded', {'playlist': self.playlist})
+        self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
         
         return count

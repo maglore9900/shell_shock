@@ -40,9 +40,6 @@ Available Spotify commands:
     # Implementation of BasePlugin abstract methods
     def _play_impl(self, args):
         """Play or resume Spotify playback"""
-        # IMPORTANT: Ensure exclusive playback before starting
-        self.player.plugin_manager.ensure_exclusive_playback('spotify')
-        
         if args:
             # Play specific track/playlist
             query = " ".join(args)
@@ -79,6 +76,7 @@ Available Spotify commands:
                     'album': track['item']['album']['name'] if track['item'].get('album') else None,
                     'position': track.get('progress_ms', 0) / 1000.0,  # Convert to seconds
                     'duration': track['item']['duration_ms'] / 1000.0 if track['item'].get('duration_ms') else 0,  # Convert to seconds
+                    'state': 'PLAYING' if track.get('is_playing', False) else 'PAUSED'
                 }
                 # Send standardized info to base class
                 self.update_playback_state_from_info(playback_info)
@@ -153,11 +151,6 @@ Available Spotify commands:
         except Exception as e:
             print(f"Error checking Spotify playback: {e}")
             return False
-    
-    # Override BasePlugin's _is_playing to use Spotify's own check
-    def _is_playing(self):
-        """Check if Spotify is currently playing"""
-        return self.is_playing()
             
     def get_current_playback(self):
         """Get current Spotify playback information"""
@@ -182,15 +175,15 @@ Available Spotify commands:
         print(f"Spotify volume set to {volume}%")
         return True
     
-    def on_play(self, data):
-        """Handle play event from the player"""
-        # If we're playing local, we might want to pause Spotify
-        if self.is_playing():
+    # Single hook method to handle source changes - stops Spotify when another source becomes active
+    def on_source_changed_hook(self, data):
+        """Handle source change events"""
+        # If another source became active, pause Spotify
+        if data['previous_source'] == 'spotify' and data['new_source'] != 'spotify':
             try:
                 self.spotify.pause()
             except Exception as e:
                 print(f"Error pausing Spotify: {e}")
-    
 
     def play_track(self, track_data):
         """Play a track selected from search results"""
@@ -198,16 +191,16 @@ Available Spotify commands:
             # Unpack the track data
             display_text, track_id, metadata = track_data
             
-            # IMPORTANT: Ensure exclusive playback before starting
-            self.player.plugin_manager.ensure_exclusive_playback('spotify')
-            
-            print(f"Playing: {display_text}")
-            result = self.spotify.play_song_by_id(track_id)
-            
-            # Update playback info
-            self.update_playback_info()
-            
-            return result
+            # Use the base plugin's state transition handler
+            return self.handle_state_transition(
+                action_func=lambda: self.spotify.play_song_by_id(track_id),
+                wait_time=0.5,
+                state_update={
+                    'state': 'PLAYING',
+                    'track_name': display_text.split(' - ')[0] if ' - ' in display_text else display_text,
+                    'artist': metadata.get('artist')
+                }
+            )
         except Exception as e:
             print(f"Error playing track: {e}")
             return False
@@ -218,21 +211,22 @@ Available Spotify commands:
             # Unpack the playlist data
             display_text, playlist_id, metadata = playlist_data
             
-            # IMPORTANT: Ensure exclusive playback before starting
-            self.player.plugin_manager.ensure_exclusive_playback('spotify')
+            def start_playlist():
+                device_id = self.spotify.set_active_device()
+                if device_id:
+                    self.spotify.sp.start_playback(
+                        device_id=device_id, 
+                        context_uri=metadata['uri']
+                    )
+                    return True
+                return False
             
-            print(f"Playing playlist: {display_text}")
-            device_id = self.spotify.set_active_device()
-            if device_id:
-                self.spotify.sp.start_playback(
-                    device_id=device_id, 
-                    context_uri=metadata['uri']
-                )
-                
-                # Update plugin manager with new track info
-                self.update_playback_info()
-                return True
-            return False
+            # Use the base plugin's state transition handler
+            return self.handle_state_transition(
+                action_func=start_playlist,
+                wait_time=1.0,  # Give a bit more time for playlist to start
+                state_update={'state': 'PLAYING'}
+            )
         except Exception as e:
             print(f"Error playing playlist: {e}")
             return False
