@@ -146,8 +146,9 @@ Available YouTube commands:
             }
             
             if success:
-                self.current_temp_file = temp_filepath
-                self.cleanup_temp_file()
+                if self.current_temp_file != temp_filepath:  # Only cleanup if it's not the active file
+                    self.current_temp_file = temp_filepath
+                    self.cleanup_temp_file()
                 print(f"Download Successful: {yt.title} by {yt.author}")
                 return True
             else:
