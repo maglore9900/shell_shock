@@ -84,6 +84,7 @@ class MusicPlayer:
         self.NOW_PLAYING_DEFAULT = env("NOW_PLAYING_DEFAULT", default=False)
         self.PLAYLISTS_PATH = env("PLAYLISTS_PATH", default="playlists")
         self.PLUGINS_PATH = env("PLUGINS_PATH", default="plugins")
+        self.shuffle_mode = True if env("SHUFFLE") and env("SHUFFLE").lower() == "true" else False
         self.env = env
         self.event_bus = EventBus()
         self.media_handler = MediaHandler()  
@@ -94,7 +95,6 @@ class MusicPlayer:
         self.current_track = None
         self.media = []
         self.playlist = []
-        self.current_index = 0
         self.current_playlist_name = None
         self.playback_info = {
             'source': 'local',  # 'local' or plugin name
@@ -122,13 +122,11 @@ class MusicPlayer:
         # Initialize other handlers
         self.playlist_handler = PlaylistHandler(playlists_dir=self.PLAYLISTS_PATH)
         self.user_playlists = self.playlist_handler.scan_playlists()
-        # Add local media
         
         # log.info("initialize plugin manager")
         # Create the plugin manager - ONLY ONCE with a reference to this player
         self.plugin_manager = PluginManager(player_instance=self)
         self.plugin_manager.set_active_plugin('local')
-        # log.info("scan plugins")
         # Scan plugins directory to find available plugins
         self.plugins_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), self.PLUGINS_PATH)
         self.available_plugins = self.plugin_manager.scan_plugin_directory(self.plugins_dir)
@@ -140,7 +138,6 @@ class MusicPlayer:
         
         # Event handling thread
         self.running = True
-        self.shuffle_mode = True if self.DEFAULT_SORT.lower() == "random" else False
         self.original_playlist_order = []
         
         # Start event loop
@@ -179,17 +176,20 @@ class MusicPlayer:
             
             # Automatically load Local Media as the active playlist
             self.playlist = self.media.copy()
-            self.current_playlist_name = "Local Media"
-            
-            # Apply sorting if shuffle is enabled
-            if self.shuffle_mode:
-                # Store original playlist order
-                self.original_playlist_order = self.playlist.copy()
-                # Shuffle the playlist
-                random.shuffle(self.playlist)
-            
+            self.current_playlist_name = "Local Media"            
             # Notify plugins
             self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
+
+        if self.shuffle_mode:
+            available_indices = list(range(len(self.playlist)))
+            random.shuffle(available_indices)
+            self.current_index = available_indices[0]
+            self.next_index = available_indices[1 % len(available_indices)]
+            self.prev_index = (self.current_index - 1) % len(self.playlist)
+        else:
+            self.current_index = 0
+            self.next_index = (self.current_index + 1) % len(self.playlist)
+            self.prev_index = (self.current_index - 1) % len(self.playlist)
         
     def set_player_state(self, state):
         """Update both the enum state and the playback_info state consistently"""
@@ -269,24 +269,19 @@ class MusicPlayer:
                 # Only check pygame status if local playback is active
                 if self.plugin_manager.get_active_plugin() == 'local' and self.state == PlayerState.PLAYING and not pygame.mixer.music.get_busy():
                     # Track finished playing
-                    old_state = self.state
-                    self.state = PlayerState.STOPPED
+                    # self.state = PlayerState.STOPPED
                     
                     # Publish state change event
-                    self.update_playback_info({'state': 'STOPPED'})
+                    # self.update_playback_info({'state': 'STOPPED'})
                     
                     # Auto-play next track
                     if self.playlist and len(self.playlist) > 0:
                         # Move to next track
-                        if self.shuffle_mode:
-                            self.current_index = (random.randint(0, len(self.playlist)) +1) % len(self.playlist)
-                        else:
-                            self.current_index = (self.current_index + 1) % len(self.playlist)
+                        self.navigate_track("next")
                         
                         # Update the current track and publish track change event
-                        old_track = self.current_track
+                        old_track = self.playlist[self.prev_index]
                         self.current_track = self.playlist[self.current_index]
-                        
                         # Only publish track change if it's a different track
                         if old_track != self.current_track:
                             self.event_bus.publish(self.TRACK_CHANGED, {
@@ -375,14 +370,6 @@ class MusicPlayer:
             recursive=self.SCAN_SUBDIRECTORIES
         )
         
-        # # Get all tracks from the media handler index
-        # indexed_files = self.media_handler.get_all_indexed_tracks(
-        #     sort_method=self.DEFAULT_SORT.lower(),
-        #     shuffle=(self.DEFAULT_SORT.lower() == 'random')
-        # )
-        
-        # Merge both sets of files (indexed and direct)
-        # media = list(set(direct_files + indexed_files))
         media = list(direct_files)
                 
         # Print loading summary
@@ -525,6 +512,108 @@ class MusicPlayer:
                 # If no stop method, try pause as fallback
                 plugin.pause([])
     
+    def navigate_track(self, direction):
+        """
+        Navigate to next or previous track and update indices accordingly
+        
+        Args:
+            direction: String, either 'next' or 'prev'
+        
+        Returns:
+            The track that should now be played
+        """
+        # Add a lock to prevent concurrent execution
+        if not hasattr(self, '_navigate_lock'):
+            self._navigate_lock = threading.Lock()
+        
+        # Use the lock for thread safety
+        with self._navigate_lock:
+            if direction not in ['next', 'prev']:
+                raise ValueError("Direction must be either 'next' or 'prev'")
+            
+            # Safety check to prevent index errors
+            if not self.playlist or len(self.playlist) == 0:
+                print("No tracks in playlist")
+                return None
+            
+            # Make a local copy of crucial values to avoid them changing mid-operation
+            playlist_length = len(self.playlist)
+            current_idx = self.current_index
+            next_idx = self.next_index
+            prev_idx = self.prev_index
+            
+            # Ensure all indices are valid before we start
+            current_idx = max(0, min(current_idx, playlist_length - 1))
+            next_idx = max(0, min(next_idx, playlist_length - 1))
+            prev_idx = max(0, min(prev_idx, playlist_length - 1))
+            
+            # Save the original current index before any changes
+            old_current = current_idx
+            
+            if self.shuffle_mode:
+                if direction == 'next':
+                    # For next in shuffle mode: pick a completely random new track
+                    available_indices = list(range(playlist_length))
+                    if len(available_indices) > 1:  # Only exclude current if we have options
+                        if current_idx in available_indices:
+                            available_indices.remove(current_idx)
+                    
+                    # Set current to new random track
+                    current_idx = random.choice(available_indices)
+                    
+                    # Update prev to be what we were just playing
+                    prev_idx = old_current
+                    
+                    # Pick another random for next that's different from current
+                    next_available = [i for i in available_indices if i != current_idx]
+                    if next_available:
+                        next_idx = random.choice(next_available)
+                    else:
+                        # Small playlist fallback
+                        next_idx = (current_idx + 1) % playlist_length
+                        
+                else:  # direction == 'prev'
+                    # For prev: go back to the previous track we were on
+                    current_idx = prev_idx
+                    
+                    # The new prev becomes whatever was before that
+                    prev_idx = (current_idx - 1) % playlist_length
+                    
+                    # Store the old current as next
+                    next_idx = old_current
+                        
+            else:  # Sequential mode
+                if direction == 'next':
+                    prev_idx = current_idx
+                    current_idx = next_idx
+                    next_idx = (current_idx + 1) % playlist_length
+                else:  # direction == 'prev'
+                    next_idx = current_idx
+                    current_idx = prev_idx
+                    prev_idx = (current_idx - 1) % playlist_length
+            
+            # Final safety check on indices
+            current_idx = max(0, min(current_idx, playlist_length - 1))
+            next_idx = max(0, min(next_idx, playlist_length - 1))
+            prev_idx = max(0, min(prev_idx, playlist_length - 1))
+            
+            # Now update the actual object attributes with our calculated values
+            self.current_index = current_idx
+            self.next_index = next_idx
+            self.prev_index = prev_idx
+            
+            # Make sure we have a valid current track
+            try:
+                track = self.playlist[self.current_index]
+                return track
+            except IndexError:
+                # If we somehow still have an issue, reset to a safe state
+                print("Warning: Index error in navigate_track, resetting to first track")
+                self.current_index = 0
+                self.next_index = 1 % playlist_length
+                self.prev_index = playlist_length - 1
+                return self.playlist[0] if self.playlist else None
+
     def next_track(self):
         """Play the next track in the playlist."""
         # Check if any plugin is currently active
@@ -540,10 +629,7 @@ class MusicPlayer:
         # Local playback handling
         if self.playlist:
             self.stop()
-            if self.shuffle_mode:
-                self.current_index = (random.randint(0, len(self.playlist)) +1) % len(self.playlist)
-            else:
-                self.current_index = (self.current_index + 1) % len(self.playlist)
+            self.navigate_track("next")
             self.play()
 
     def previous_track(self):
@@ -561,7 +647,7 @@ class MusicPlayer:
         # Local playback handling
         if self.playlist:
             self.stop()
-            self.current_index = (self.current_index - 1) % len(self.playlist)
+            self.navigate_track("prev")
             self.play()
     
     def get_playback_position(self):
@@ -609,15 +695,6 @@ class MusicPlayer:
         }
         
         return status
-    
-    # def _notify_plugins(self, event_name, data):
-    #     """Notify all plugins about an event."""
-    #     for plugin_name, plugin in self.plugins.items():
-    #         if hasattr(plugin, event_name):
-    #             try:
-    #                 getattr(plugin, event_name)(data)
-    #             except Exception as e:
-    #                 print(f"Error in plugin {plugin_name} handling {event_name}: {e}")
     
     def shutdown(self):
         """Clean shutdown of the player."""
@@ -690,13 +767,6 @@ class MusicPlayer:
         self.current_index = 0
         self.current_playlist_name = playlist_name
         
-        # Apply sorting if shuffle is enabled
-        # if self.shuffle_mode:
-        #     # Store original playlist order
-        #     self.original_playlist_order = self.playlist.copy()
-        #     # Shuffle the playlist
-        #     random.shuffle(self.playlist)
-        
         # Notify plugins
         self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
         
@@ -720,14 +790,6 @@ class MusicPlayer:
         
         # If this is the current playlist, update it
         if result and self.current_playlist_name == playlist_name:
-            # Add to the current playlist too
-            # if self.shuffle_mode:
-            #     # Add to original order
-            #     self.original_playlist_order.append(track_path)
-            #     # Add to a random position in the current playlist
-            #     insert_idx = random.randint(0, len(self.playlist))
-            #     self.playlist.insert(insert_idx, track_path)
-            # else:
             self.playlist.append(track_path)
         
         return result
@@ -746,18 +808,6 @@ class MusicPlayer:
         
         # If this is the current playlist, update it
         if result and track and self.current_playlist_name == playlist_name:
-            # if self.shuffle_mode:
-            #     # Remove from original order
-            #     try:
-            #         self.original_playlist_order.remove(track)
-            #     except ValueError:
-            #         pass
-            #     # Remove from current playlist
-            #     try:
-            #         self.playlist.remove(track)
-            #     except ValueError:
-            #         pass
-            # else:
             if track_index < self.current_index:
                 self.current_index -= 1
             elif track_index == self.current_index:
@@ -780,47 +830,6 @@ class MusicPlayer:
     def toggle_shuffle(self):
         """Toggle shuffle mode on/off."""
         self.shuffle_mode = not self.shuffle_mode
-        
-        # # Only affects local playback
-        # if self.playlist:
-        #     if self.shuffle_mode:
-        #         # Store original playlist order if not already stored
-        #         if not self.original_playlist_order:
-        #             self.original_playlist_order = self.playlist.copy()
-                
-        #         # Remember current track
-        #         current_track = self.playlist[self.current_index] if self.current_index < len(self.playlist) else None
-                
-        #         # Shuffle the playlist
-        #         import random
-        #         random.shuffle(self.playlist)
-                
-        #         # Try to keep the current track as current
-        #         if current_track:
-        #             try:
-        #                 self.current_index = self.playlist.index(current_track)
-        #             except ValueError:
-        #                 # Current track not found in shuffled playlist
-        #                 self.current_index = 0
-        #     else:
-        #         # Restore original playlist order
-        #         if self.original_playlist_order:
-        #             # Remember current track
-        #             current_track = self.playlist[self.current_index] if self.current_index < len(self.playlist) else None
-                    
-        #             # Restore original order
-        #             self.playlist = self.original_playlist_order.copy()
-        #             self.original_playlist_order = []
-                    
-        #             # Try to keep the current track as current
-        #             if current_track:
-        #                 try:
-        #                     self.current_index = self.playlist.index(current_track)
-        #                 except ValueError:
-        #                     # Current track not found in original playlist
-        #                     self.current_index = 0
-        
-        # Notify plugins about shuffle mode change
         self.event_bus.publish('on_shuffle_change', {'shuffle': self.shuffle_mode})
         
         status = "enabled" if self.shuffle_mode else "disabled"
@@ -851,16 +860,6 @@ class MusicPlayer:
             for track in all_tracks:
                 if track not in self.playlist:
                     self.playlist.append(track)
-            
-            # # Apply sorting if needed
-            # if self.DEFAULT_SORT.lower() == 'name':
-            #     self.playlist.sort(key=lambda x: os.path.basename(x).lower())
-            # elif self.DEFAULT_SORT.lower() == 'date':
-            #     self.playlist.sort(key=lambda x: os.path.getmtime(x))
-            # elif self.shuffle_mode:
-            #     random.shuffle(self.playlist)
-            
-            # Notify plugins
             self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
             
             return True
@@ -886,8 +885,6 @@ class MusicPlayer:
             # Get current tracks after removal
             current_tracks = self.media_handler.get_all_indexed_tracks()
             
-            # Filter playlist to remove tracks that are no longer available
-            # Keep track of whether current track is removed
             current_track_removed = False
             if self.current_track and self.current_track not in current_tracks:
                 current_track_removed = True
