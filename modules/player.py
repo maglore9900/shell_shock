@@ -119,34 +119,26 @@ class MusicPlayer:
         self.current_track_length = 0
         self.track_start_time = 0
         
-        # Initialize other handlers
+        #! Playlists
         self.playlist_handler = PlaylistHandler(playlists_dir=self.PLAYLISTS_PATH)
         self.user_playlists = self.playlist_handler.scan_playlists()
         
-        # log.info("initialize plugin manager")
+        #! Plugins
         # Create the plugin manager - ONLY ONCE with a reference to this player
         self.plugin_manager = PluginManager(player_instance=self)
         self.plugin_manager.set_active_plugin('local')
         # Scan plugins directory to find available plugins
         self.plugins_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), self.PLUGINS_PATH)
         self.available_plugins = self.plugin_manager.scan_plugin_directory(self.plugins_dir)
-        # log.info("load plugins")
-        # Load enabled plugins if auto-load is enabled
         self.plugins = {}
         if self.plugin_manager.settings['auto_load_plugins']:
             self.load_plugins()
         
-        # Event handling thread
-        self.running = True
-        self.original_playlist_order = []
-        
         # Start event loop
+        self.running = True
         self._start_event_loop()
 
-        # log.info("load music library")
-        # Load music library if specified
-        # if self.MUSIC_LIBRARY_PATH:
-        #     self.MUSIC_LIBRARY_PATH = os.path.expanduser("~")
+        #! Media
         if self.MUSIC_LIBRARY_PATH:
             # Check if MUSIC_LIBRARY_PATH contains commas
             if "," in self.MUSIC_LIBRARY_PATH:
@@ -159,27 +151,23 @@ class MusicPlayer:
             # Default to home directory if no path is specified
             paths = [os.path.expanduser("~")]
 
-        # self.media_handler.add_media_location(self.MUSIC_LIBRARY_PATH)
         self.media_handler.add_media_location(paths)
         self.media_handler.update_media_index()
-        # self.load_media(self.MUSIC_LIBRARY_PATH)
         for path in paths:
             self.load_media(path)
         if self.media:
             self.user_playlists["Local Media"]["tracks"] = self.media
-
         if self.media:
             self.user_playlists["Local Media"] = {
                 "tracks": self.media,
-                "file": None  # This is an in-memory playlist
+                "file": None  
             }
-            
-            # Automatically load Local Media as the active playlist
             self.playlist = self.media.copy()
             self.current_playlist_name = "Local Media"            
             # Notify plugins
             self.event_bus.publish('on_playlist_loaded', {'playlist': self.playlist})
 
+        #! Shuffle
         if self.shuffle_mode:
             available_indices = list(range(len(self.playlist)))
             random.shuffle(available_indices)
@@ -190,12 +178,11 @@ class MusicPlayer:
             self.current_index = 0
             self.next_index = (self.current_index + 1) % len(self.playlist)
             self.prev_index = (self.current_index - 1) % len(self.playlist)
-        
+
+    #! Begin Functions        
     def set_player_state(self, state):
         """Update both the enum state and the playback_info state consistently"""
         old_state = self.state
-        
-        # Update the enum state
         self.state = state
         
         # Get the string representation for playback_info
