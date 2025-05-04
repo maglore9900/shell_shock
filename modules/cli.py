@@ -656,13 +656,9 @@ class MusicPlayerCLI:
 
     def show_now_playing(self, args):
         """Display a real-time now playing screen with progress bar."""
-        # Get current playback information
-        playback = self.player.get_current_playback()
-        
-        # Check if anything is playing
-        if playback['state'] not in ['PLAYING', 'PAUSED']:
-            print("Nothing is currently playing.")
-            return
+        # Create a lock if it doesn't exist yet
+        if not hasattr(self, '_display_lock'):
+            self._display_lock = threading.Lock()
         
         try:
             # Flag to signal the display thread to exit
@@ -673,58 +669,79 @@ class MusicPlayerCLI:
                 if exit_flag.is_set():
                     return
                     
-                # Get updated playback info - even if called from an event
-                playback = self.player.get_current_playback()
-                
-                # Extract variables for easy reference
-                track_name = playback['track_name']
-                artist = playback['artist']
-                album = playback['album']
-                position = playback['position']
-                duration = playback['duration']
-                source = self.player.plugin_manager.get_plugin_display_name(playback['source'])
-                playback_state = playback['state']
-                
-                # Calculate progress percentage
-                progress_percent = 0
-                if duration > 0:
-                    progress_percent = min(100, (position / duration) * 100)
-                
-                # Clear screen
-                clear_screen()
-                
-                # Build display
-                print("\n=== NOW PLAYING ===")
-                print(f"\nTrack: {track_name}")
-                if artist:
-                    print(f"Artist: {artist}")
-                if album:
-                    print(f"Album: {album}")
-                print(f"Source: {source}")
-                print(f"State: {playback_state}")
-                print(f"Volume: {int(self.player.volume * 100)}%")
-                print(f"Shuffle: {'On' if self.player.shuffle_mode else 'Off'}")
-                
-                # Progress bar (50 characters wide)
-                bar_width = 50
-                filled_width = int(bar_width * progress_percent / 100)
-                bar = '█' * filled_width + '░' * (bar_width - filled_width)
-                
-                # Time display
-                position_str = self.format_time(position)
-                duration_str = self.format_time(duration)
-                
-                print(f"\n{position_str} {bar} {duration_str}")
-                
-                # Show controls
-                print("\nControls:")
-                print("  [Space] Pause/Play")
-                print("  [←/→] Previous/Next Track")
-                print("  [↑/↓] Volume Up/Down")
-                print("  [s] Toggle Shuffle Mode")
-                print("  [q] Return to main menu")
-                
-                print("\nPress a key...", end='', flush=True)
+                try:
+                    # Acquire the display lock to prevent race conditions
+                    # Use non-blocking attempt to avoid deadlocks
+                    if not self._display_lock.acquire(blocking=False):
+                        return  # Skip this update if lock is already held
+                    
+                    try:
+                        # Get updated playback info - even if called from an event
+                        playback = self.player.get_current_playback()
+                        
+                        # Check if anything is playing
+                        if playback['state'] not in ['PLAYING', 'PAUSED']:
+                            print("Nothing is currently playing.")
+                            return
+                        
+                        # Extract variables for easy reference
+                        track_name = playback['track_name']
+                        artist = playback['artist']
+                        album = playback['album']
+                        position = playback['position']
+                        duration = playback['duration']
+                        source = self.player.plugin_manager.get_plugin_display_name(playback['source'])
+                        playback_state = playback['state']
+                        
+                        # Calculate progress percentage
+                        progress_percent = 0
+                        if duration and duration > 0:
+                            progress_percent = min(100, (position / duration) * 100)
+                        
+                        # Clear screen
+                        clear_screen()
+                        
+                        # Build display
+                        print("\n=== NOW PLAYING ===")
+                        print(f"\nTrack: {track_name}")
+                        if artist:
+                            print(f"Artist: {artist}")
+                        if album:
+                            print(f"Album: {album}")
+                        print(f"Source: {source}")
+                        print(f"State: {playback_state}")
+                        print(f"Volume: {int(self.player.volume * 100)}%")
+                        print(f"Shuffle: {'On' if self.player.shuffle_mode else 'Off'}")
+                        
+                        # Progress bar (50 characters wide)
+                        bar_width = 50
+                        filled_width = int(bar_width * progress_percent / 100)
+                        bar = '█' * filled_width + '░' * (bar_width - filled_width)
+                        
+                        # Time display
+                        position_str = self.format_time(position)
+                        duration_str = self.format_time(duration)
+                        
+                        print(f"\n{position_str} {bar} {duration_str}")
+                        
+                        # Show controls
+                        print("\nControls:")
+                        print("  [Space] Pause/Play")
+                        print("  [←/→] Previous/Next Track")
+                        print("  [↑/↓] Volume Up/Down")
+                        print("  [s] Toggle Shuffle Mode")
+                        print("  [q] Return to main menu")
+                        
+                        print("\nPress a key...", end='', flush=True)
+                    finally:
+                        # Always release the lock
+                        self._display_lock.release()
+                except Exception as e:
+                    # Log any errors but don't crash
+                    print(f"Display update error: {e}")
+                    # Make sure we always release the lock even if we hit an exception
+                    if self._display_lock.locked():
+                        self._display_lock.release()
             
             # Update position handler (only updates the progress bar)
             def update_position(event_data=None):
@@ -781,50 +798,52 @@ class MusicPlayerCLI:
                         return plugin_info['instance']
                     return None
                 
-                # Handle different key commands
-                if key == readchar.key.SPACE:
-                    if active_plugin == 'local':
-                        # Toggle local playback using playback state instead of direct enum access
-                        if current_playback['state'] == 'PLAYING':
-                            self.player.pause()
+                # Acquire the lock for key command processing to prevent race conditions
+                with self._display_lock:
+                    # Handle different key commands
+                    if key == readchar.key.SPACE:
+                        if active_plugin == 'local':
+                            # Toggle local playback using playback state instead of direct enum access
+                            if current_playback['state'] == 'PLAYING':
+                                self.player.pause()
+                            else:
+                                self.player.play()
                         else:
-                            self.player.play()
-                    else:
-                        plugin = get_plugin_instance()
-                        if plugin:
-                            command = 'pause' if current_playback['state'] == 'PLAYING' else 'play'
-                            self.plugin_command(plugin, active_plugin, [command])
-                
-                elif key == 's':
-                    self.player.toggle_shuffle()
-                
-                elif key in (readchar.key.LEFT, readchar.key.RIGHT):
-                    if active_plugin == 'local':
-                        args = ""
-                        self.previous_track(args) if key == readchar.key.LEFT else self.next_track(args)
-                    else:
-                        plugin = get_plugin_instance()
-                        if plugin:
-                            command = 'prev' if key == readchar.key.LEFT else 'next'
-                            self.plugin_command(plugin, active_plugin, [command])
-                
-                elif key in (readchar.key.UP, readchar.key.DOWN):
-                    # Calculate new volume based on key
-                    volume_change = 0.05 if key == readchar.key.UP else -0.05
-                    new_vol = max(0.0, min(1.0, self.player.volume + volume_change))
+                            plugin = get_plugin_instance()
+                            if plugin:
+                                command = 'pause' if current_playback['state'] == 'PLAYING' else 'play'
+                                self.plugin_command(plugin, active_plugin, [command])
                     
-                    # Apply volume change
-                    if active_plugin == 'local':
-                        self.player.set_volume(new_vol)
-                    else:
-                        plugin = get_plugin_instance()
-                        if plugin:
-                            try:
-                                self.plugin_command(plugin, active_plugin, ['volume', str(int(new_vol * 100))])
-                                self.player.set_volume(new_vol)
-                            except Exception as e:
-                                log.info(f"Error setting volume: {e}")
-                
+                    elif key == 's':
+                        self.player.toggle_shuffle()
+                    
+                    elif key in (readchar.key.LEFT, readchar.key.RIGHT):
+                        if active_plugin == 'local':
+                            args = ""
+                            self.previous_track(args) if key == readchar.key.LEFT else self.next_track(args)
+                        else:
+                            plugin = get_plugin_instance()
+                            if plugin:
+                                command = 'prev' if key == readchar.key.LEFT else 'next'
+                                self.plugin_command(plugin, active_plugin, [command])
+                    
+                    elif key in (readchar.key.UP, readchar.key.DOWN):
+                        # Calculate new volume based on key
+                        volume_change = 0.05 if key == readchar.key.UP else -0.05
+                        new_vol = max(0.0, min(1.0, self.player.volume + volume_change))
+                        
+                        # Apply volume change
+                        if active_plugin == 'local':
+                            self.player.set_volume(new_vol)
+                        else:
+                            plugin = get_plugin_instance()
+                            if plugin:
+                                try:
+                                    self.plugin_command(plugin, active_plugin, ['volume', str(int(new_vol * 100))])
+                                    self.player.set_volume(new_vol)
+                                except Exception as e:
+                                    print(f"Error setting volume: {e}")
+            
         except KeyboardInterrupt:
             print("\nReturning to main menu...")
             # Make sure to stop the display thread if we get an interruption
