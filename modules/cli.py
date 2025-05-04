@@ -2,7 +2,7 @@ import threading
 import time
 import readchar
 import os
-from modules.player import PlayerState, clear_screen
+from modules.player import clear_screen
 from modules.logging_utils import log_function_call,  app_logger as log
 
 
