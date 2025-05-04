@@ -10,7 +10,6 @@ from typing import Dict, List, Callable, Any
 from modules.media_handler import MediaHandler
 from modules.playlist_handler import PlaylistHandler
 from modules.plugin_manager import PluginManager
-from modules.state_handler import PlayingState, StoppedState, PausedState
 
 from modules.logging_utils import log_function_call, app_logger as log
 
@@ -56,6 +55,11 @@ class EventBus:
         except Exception as e:
             print(f"Error in event callback: {e}")
 
+class PlayerState(Enum):
+    STOPPED = 0
+    PLAYING = 1
+    PAUSED = 2
+
 def clear_screen():
     # For Windows
     if os.name == 'nt':
@@ -74,13 +78,6 @@ class MusicPlayer:
     VOLUME_CHANGED = 'volume_changed'          
     def __init__(self, env):
         """Initialize the music player"""
-        # Initialize state objects
-        self.STOPPED_STATE = StoppedState()
-        self.PLAYING_STATE = PlayingState()
-        self.PAUSED_STATE = PausedState()
-        
-        # Track the current state - this is the ONLY state tracker now
-        self._state = self.STOPPED_STATE
         self.MUSIC_LIBRARY_PATH = env("MUSIC_LIBRARY_PATH", default=None)
         self.SCAN_SUBDIRECTORIES = env("SCAN_SUBDIRECTORIES", default=False)
         self.DEFAULT_SORT = env("DEFAULT_SORT", default="name")
@@ -94,7 +91,7 @@ class MusicPlayer:
         pygame.init()  # Only initialize other pygame components
         
         # Player state
-        # self._state = self.STOPPED_STATE
+        self.state = PlayerState.STOPPED
         self.current_track = None
         self.media = []
         self.playlist = []
@@ -109,7 +106,7 @@ class MusicPlayer:
             'duration': 0,
             'bitrate': None,
             'year': None,
-            'state': self._state.get_state_name(),  # Use the state object to get the name
+            'state': 'STOPPED',  # 'STOPPED', 'PLAYING', 'PAUSED'
             'plugin_instance': None  # Reference to the active plugin instance
         }
         
@@ -182,12 +179,23 @@ class MusicPlayer:
             self.next_index = (self.current_index + 1) % len(self.playlist)
             self.prev_index = (self.current_index - 1) % len(self.playlist)
 
-    #! Begin Functions  
-    @property
-    def state_name(self):
-        """Get the name of the current state"""
-        return self._state.get_state_name()
-      
+    #! Begin Functions        
+    def set_player_state(self, state):
+        """Update both the enum state and the playback_info state consistently"""
+        old_state = self.state
+        self.state = state
+        
+        # Get the string representation for playback_info
+        state_str = {
+            PlayerState.PLAYING: 'PLAYING',
+            PlayerState.PAUSED: 'PAUSED',
+            PlayerState.STOPPED: 'STOPPED'
+        }[state]
+        
+        # Update playback_info and trigger events
+        if old_state != state:
+            self.update_playback_info({'state': state_str})
+
     def update_playback_info(self, info):
         """Update playback information and publish relevant events"""
         # Track what fields are changing
@@ -199,15 +207,14 @@ class MusicPlayer:
         if 'state' in info and info['state'] != self.playback_info['state']:
             state_changed = True
             
-            # Update state object based on state string
+            # If state string is changing, update the enum state too
             state_map = {
-                'STOPPED': self.STOPPED_STATE,
-                'PLAYING': self.PLAYING_STATE,
-                'PAUSED': self.PAUSED_STATE
+                'PLAYING': PlayerState.PLAYING,
+                'PAUSED': PlayerState.PAUSED,
+                'STOPPED': PlayerState.STOPPED
             }
-            
-            if info['state'] in state_map:
-                self._state = state_map[info['state']]
+            if info['state'] in state_map and self.state != state_map[info['state']]:
+                self.state = state_map[info['state']]
         
         if 'source' in info and info['source'] != self.playback_info['source']:
             source_changed = True
@@ -247,9 +254,12 @@ class MusicPlayer:
             """Background thread for handling events like track ending."""
             while self.running:
                 # Only check pygame status if local playback is active
-                if (self.plugin_manager.get_active_plugin() == 'local' and 
-                    self._state == self.PLAYING_STATE and 
-                    not pygame.mixer.music.get_busy()):
+                if self.plugin_manager.get_active_plugin() == 'local' and self.state == PlayerState.PLAYING and not pygame.mixer.music.get_busy():
+                    # Track finished playing
+                    # self.state = PlayerState.STOPPED
+                    
+                    # Publish state change event
+                    # self.update_playback_info({'state': 'STOPPED'})
                     
                     # Auto-play next track
                     if self.playlist and len(self.playlist) > 0:
@@ -358,21 +368,67 @@ class MusicPlayer:
         # First ensure this source (local) has exclusive playback
         self.plugin_manager.ensure_exclusive_playback('local')
         
-        # Delegate to the current state object
-        self._state.play(self)
+        # Now proceed with normal play logic based on current state
+        if self.state == PlayerState.STOPPED:
+            if self.playlist and self.current_index < len(self.playlist):
+                self.current_track = self.playlist[self.current_index]
+                # print(f"Playing track: {os.path.basename(self.current_track)}")
+                
+                # Get track duration before playing
+                self.current_track_length = self.media_handler.get_track_duration(self.current_track)
+                
+                # Use MediaHandler method to play
+                success, temp_file = self.media_handler.play_audio(self.current_track)
+                if not success:
+                    print(f"Cannot play {os.path.basename(self.current_track)}: format not supported")
+                    return
+                
+                self.track_start_time = time.time()
+                self.state = PlayerState.PLAYING
+                
+                # Update playback info and publish state events
+                self.update_playback_info({
+                    'state': 'PLAYING',
+                    'track_name': os.path.basename(self.current_track),
+                    'source': 'local'
+                })
+                
+                # Make sure plugin manager knows local is the active source
+                self.plugin_manager.set_active_plugin('local')
+                
+                # Update play stats
+                self.media_handler.update_play_stats(self.current_track)
+                
+                # For backward compatibility, still publish the on_play event
+                self.event_bus.publish('on_play', {'track': self.current_track})
+            else:
+                print("No tracks in playlist")
+        elif self.state == PlayerState.PAUSED:
+            self.media_handler.resume_audio()
+            self.state = PlayerState.PLAYING
+            
+            # Update playback state and publish state event
+            self.update_playback_info({'state': 'PLAYING'})
                 
     def get_current_playback(self):
-        """Get information about what's currently playing"""
+        """
+        Get information about what's currently playing, regardless of source.
+        
+        Returns:
+            dict: A dictionary with current playback information
+        """
+        # If it's local playback and we're playing, update the position
         current_playback = self.playback_info.copy()
-        if self._state == self.PLAYING_STATE:
+        if self.state == PlayerState.PLAYING:
             if current_playback['source'] == 'local':
-                # Original implementation with metadata and position calculation
+                #! Prioritizing meta tags, else getting from media handler (index then direct check)
                 metadata = self.media_handler.get_metadata_from_tags(self.current_track) 
                 data = self.media_handler.get_metadata_from_file(self.current_track)
                 elapsed = time.time() - self.track_start_time   
-                
+                #! Get metadata if exists, otherwise use local data
                 track_name = (metadata and metadata.get('title')) or (data and data.get('track_name')) or None
                 duration = (metadata and metadata.get('duration')) or (data and data.get('duration')) or None
+                # Get metadata if exists, local data on this does not exist
                 artist = metadata['artist'] if metadata and 'artist' in metadata else None
                 album = metadata['album'] if metadata and 'album' in metadata else None
                 genre = metadata['genre'] if metadata and 'genre' in metadata else None
@@ -395,15 +451,24 @@ class MusicPlayer:
                 # Use the plugin manager to get current playback info
                 current_playback = self.plugin_manager.get_playback_info()
         
-        return current_playback
+            return current_playback
+        return self.playback_info
 
     def pause(self):
         """Pause playback."""
         # Check if we're controlling local playback or a plugin
         active_plugin = self.plugin_manager.get_active_plugin()
         
-        if active_plugin == 'local':
-            self._state.pause(self)
+        if active_plugin == 'local' and self.state == PlayerState.PLAYING:
+            self.media_handler.pause_audio()
+            self.state = PlayerState.PAUSED
+            
+            # Update playback info and publish state event
+            self.update_playback_info({'state': 'PAUSED'})
+            
+            # For backward compatibility
+            self.event_bus.publish('on_pause', {})
+            
         elif active_plugin != 'local':
             # Let the plugin handle it
             plugin = self.plugins.get(active_plugin)
@@ -416,7 +481,15 @@ class MusicPlayer:
         active_plugin = self.plugin_manager.get_active_plugin()
         
         if active_plugin == 'local':
-            self._state.stop(self)
+            self.media_handler.stop_audio()
+            self.state = PlayerState.STOPPED
+            
+            # Update playback info and publish state event
+            self.update_playback_info({'state': 'STOPPED'})
+            
+            # For backward compatibility
+            self.event_bus.publish('on_stop', {})
+            
         elif active_plugin != 'local':
             # Let the plugin handle it
             plugin = self.plugins.get(active_plugin)
@@ -540,8 +613,11 @@ class MusicPlayer:
                 plugin.next([])
                 return
         
-        # Local playback handling - delegate to state
-        self._state.next_track(self)
+        # Local playback handling
+        if self.playlist:
+            self.stop()
+            self.navigate_track("next")
+            self.play()
 
     def previous_track(self):
         """Play the previous track in the playlist."""
@@ -555,8 +631,11 @@ class MusicPlayer:
                 plugin.prev([])
                 return
         
-        # Local playback handling - delegate to state
-        self._state.previous_track(self)
+        # Local playback handling
+        if self.playlist:
+            self.stop()
+            self.navigate_track("prev")
+            self.play()
     
     def get_playback_position(self):
         """Get the current playback position in seconds."""
@@ -567,7 +646,7 @@ class MusicPlayer:
             return self.plugin_manager.get_playback_info()['position']
         
         # Local playback handling
-        if self._state == self.STOPPED_STATE:
+        if self.state == PlayerState.STOPPED:
             return 0
         
         # Get position from MediaHandler
@@ -586,7 +665,7 @@ class MusicPlayer:
         
         # Build status dictionary
         status = {
-            'state': self._state.get_state_name(),  # Get state name from state object
+            'state': playback['state'],
             'source': playback['source'],
             'current_track': playback['track_name'],
             'artist': playback['artist'],
@@ -801,7 +880,7 @@ class MusicPlayer:
             self.playlist = [track for track in self.playlist if track in current_tracks]
             
             # Stop playback if current track was removed
-            if current_track_removed and self._state != self.STOPPED_STATE:
+            if current_track_removed and self.state != PlayerState.STOPPED:
                 self.stop()
                 self.current_index = 0
             
