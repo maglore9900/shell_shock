@@ -5,7 +5,6 @@ import time
 import threading
 import pygame
 import random
-from enum import Enum
 from typing import Dict, List, Callable, Any
 from modules.media_handler import MediaHandler
 from modules.playlist_handler import PlaylistHandler
