@@ -274,8 +274,6 @@ class MusicPlayer:
         self.event_thread.daemon = True
         self.event_thread.start()
 
-
-    @log_function_call
     def prepare_plugin_playback(self, plugin_name):
         """
         Prepare for a plugin to start playback by pausing any currently playing sources
