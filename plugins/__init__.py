@@ -478,12 +478,6 @@ Available commands:
         # Use media handler to play the file
         success, temp_file = self.player.media_handler.play_audio(file_path, start_pos, loops)
         
-        # Store temp file for later cleanup
-        if success and temp_file:
-            # If we already had a temp file, clean it up
-            self.cleanup_temp_file()
-            self.current_temp_file = temp_file
-            
         # Store start time for position tracking
         if success:
             self.track_start_time = time.time() - start_pos
