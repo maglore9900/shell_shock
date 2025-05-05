@@ -13,12 +13,158 @@ from datetime import datetime
 from pydub import AudioSegment
 from modules.logging_utils import app_logger as log
 from typing import Dict, Any, Optional, List, Union, TypedDict, Literal, TypeVar, Generic
+from dataclasses import dataclass, field
+from modules.logging_utils import log_function_call, app_logger as log
+import threading
+
+@dataclass
+class TrackInfo:
+    """
+    A unified model for track information.
+    
+    This class represents all metadata and state information for a track,
+    providing a single source of truth for track details across the application.
+    """
+    # Essential track identifiers
+    file_path: str
+    
+    # Metadata from tags or filename
+    track_name: Optional[str] = None
+    artist: Optional[str] = None
+    album: Optional[str] = None
+    genre: Optional[str] = None
+    year: Optional[str] = None
+    bitrate: Optional[int] = None
+    
+    # Playback state
+    position: float = 0.0
+    duration: Optional[float] = None
+    
+    # Track statistics
+    play_count: int = 0
+    last_played: Optional[datetime] = None
+    date_added: datetime = field(default_factory=datetime.now)
+    
+    # Source information
+    source: str = 'local'  # 'local' or plugin name
+    
+    # Additional metadata that may be provided by plugins
+    extended_info: Dict[str, Any] = field(default_factory=dict)
+    
+    def __post_init__(self):
+        """Ensure we have at least a basic track name from the filename if none provided."""
+        if not self.track_name:
+            self.track_name = os.path.basename(self.file_path)
+    
+    @property
+    def filename(self) -> str:
+        """Get the filename from the path."""
+        return os.path.basename(self.file_path)
+    
+    @property
+    def directory(self) -> str:
+        """Get the directory containing the file."""
+        return os.path.dirname(self.file_path)
+    
+    @classmethod
+    def from_file_path(cls, file_path: str) -> 'TrackInfo':
+        """
+        Create a basic TrackInfo instance from just a file path.
+        Useful for initial loading before metadata is fully available.
+        """
+        return cls(file_path=file_path)
+    
+    @classmethod
+    def from_metadata(cls, file_path: str, metadata: Dict[str, Any]) -> 'TrackInfo':
+        """
+        Create a TrackInfo instance from a metadata dictionary.
+        
+        Args:
+            file_path: Path to the audio file
+            metadata: Dictionary containing metadata fields
+            
+        Returns:
+            A new TrackInfo instance
+        """
+        # Extract known fields, using None for any missing fields
+        return cls(
+            file_path=file_path,
+            track_name=metadata.get('title') or metadata.get('track_name'),
+            artist=metadata.get('artist'),
+            album=metadata.get('album'),
+            genre=metadata.get('genre'),
+            year=metadata.get('year'),
+            bitrate=metadata.get('bitrate'),
+            duration=metadata.get('duration'),
+            play_count=metadata.get('play_count', 0),
+            last_played=metadata.get('last_played'),
+            date_added=metadata.get('added_on') or metadata.get('date_added', datetime.now()),
+            # Store any additional fields in extended_info
+            extended_info={k: v for k, v in metadata.items() 
+                          if k not in ['title', 'track_name', 'artist', 'album', 
+                                      'genre', 'year', 'bitrate', 'duration', 
+                                      'play_count', 'last_played', 'added_on', 'date_added']}
+        )
+    
+    def to_dict(self) -> Dict[str, Any]:
+        """
+        Convert the TrackInfo object to a dictionary.
+        Useful for serialization and event publishing.
+        """
+        result = {
+            'file_path': self.file_path,
+            'track_name': self.track_name,
+            'artist': self.artist,
+            'album': self.album,
+            'genre': self.genre,
+            'year': self.year,
+            'bitrate': self.bitrate,
+            'position': self.position,
+            'duration': self.duration,
+            'source': self.source,
+        }
+        
+        # Add extended info if present
+        if self.extended_info:
+            result.update(self.extended_info)
+            
+        return result
+    
+    def update(self, metadata: Dict[str, Any]) -> None:
+        """
+        Update this TrackInfo with new metadata.
+        Only updates fields that are provided in the metadata dictionary.
+        
+        Args:
+            metadata: Dictionary containing metadata fields to update
+        """
+        # Update standard fields if provided
+        for field in ['track_name', 'artist', 'album', 'genre', 'year', 
+                     'bitrate', 'duration', 'position', 'source']:
+            if field in metadata and metadata[field] is not None:
+                setattr(self, field, metadata[field])
+        
+        # Update extended_info with any additional fields
+        for key, value in metadata.items():
+            if key not in ['file_path', 'track_name', 'artist', 'album', 'genre', 
+                          'year', 'bitrate', 'duration', 'position', 'source',
+                          'play_count', 'last_played', 'date_added']:
+                self.extended_info[key] = value
+    
+    def increment_play_count(self) -> None:
+        """Increment the play count and update last played time."""
+        self.play_count += 1
+        self.last_played = datetime.now()
+
 
 class MediaHandler:
     """Handles media operations like loading, converting, indexing, and getting track information."""
     
     def __init__(self):
         """Initialize the media handler."""
+        self._track_info_cache: Dict[str, TrackInfo] = {}
+        self._cache_lock = threading.Lock()
+
         # Create temp directory for conversions
         self.temp_dir = tempfile.mkdtemp()
         self.converted_files = {}
@@ -63,68 +209,180 @@ class MediaHandler:
             if directory not in self.media_locations and os.path.exists(directory):
                 self.media_locations.append(directory)
 
-    def get_metadata_from_file(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a media file from the index.
+    # def get_metadata_from_file(self, file_path: str) -> Optional[Dict[str, Any]]:
+    #     """Get metadata for a media file from the index.
         
-        Args:
-            file_path (str): Path to the media file
+    #     Args:
+    #         file_path (str): Path to the media file
             
-        Returns:
-            Optional[Dict[str, Any]]: Metadata dictionary or None if not found
-        """
-        index_info = self.media_index.get(file_path, None)
-        track_name = index_info.get('filename', None) if index_info else None
-        duration = index_info.get('duration', None) if index_info else None
-        if not track_name:
-            track_name = os.path.basename(file_path)
-        if not duration:
-            duration = self.get_track_duration(file_path)
-        data = {
-            'track_name': track_name,
-            'duration': duration,
-        }
+    #     Returns:
+    #         Optional[Dict[str, Any]]: Metadata dictionary or None if not found
+    #     """
+    #     index_info = self.media_index.get(file_path, None)
+    #     track_name = index_info.get('filename', None) if index_info else None
+    #     duration = index_info.get('duration', None) if index_info else None
+    #     if not track_name:
+    #         track_name = os.path.basename(file_path)
+    #     if not duration:
+    #         duration = self.get_track_duration(file_path)
+    #     data = {
+    #         'track_name': track_name,
+    #         'duration': duration,
+    #     }
         
-        # Publish event if event bus is available
-        if hasattr(self, 'event_bus') and self.event_bus:
-            self.event_bus.publish('metadata_file_loaded', {
-                'file_path': file_path,
-                'metadata': data
-            })
+    #     # Publish event if event bus is available
+    #     if hasattr(self, 'event_bus') and self.event_bus:
+    #         self.event_bus.publish('metadata_file_loaded', {
+    #             'file_path': file_path,
+    #             'metadata': data
+    #         })
             
-        return data
+    #     return data
 
-    def get_metadata_from_tags(self, file_path: str) -> Optional[Dict[str, Any]]:
-        """Get metadata for a media file.
+    # def get_metadata_from_tags(self, file_path: str) -> Optional[Dict[str, Any]]:
+    #     """Get metadata for a media file.
+        
+    #     Args:
+    #         file_path (str): Path to the media file
+            
+    #     Returns:
+    #         Optional[Dict[str, Any]]: Metadata dictionary or None if not found
+    #     """
+    #     try:
+    #         tag: TinyTag = TinyTag.get(file_path)
+    #         metadata = {
+    #             'title': tag.title,
+    #             'artist': tag.artist,
+    #             'album': tag.album,
+    #             'duration': tag.duration,
+    #             'bitrate': tag.bitrate,
+    #             'genre': tag.genre,
+    #             'year': tag.year,
+    #         }
+            
+    #         # Publish event if event bus is available
+    #         if hasattr(self, 'event_bus') and self.event_bus:
+    #             self.event_bus.publish('metadata_tags_loaded', {
+    #                 'file_path': file_path,
+    #                 'metadata': metadata
+    #             })
+                
+    #         return metadata
+    #     except Exception as e:
+    #         log.error(f"Error getting metadata: {e}")
+    #         return None
+    def get_track_info(self, file_path: str, elapsed: float = 0) -> TrackInfo:
+        """
+        Get comprehensive track information, prioritizing cached data with tag metadata fallbacks.
         
         Args:
             file_path (str): Path to the media file
+            elapsed (float, optional): Current playback position in seconds. Defaults to 0.
             
         Returns:
-            Optional[Dict[str, Any]]: Metadata dictionary or None if not found
+            TrackInfo: Track information object
+        
+        Raises:
+            FileNotFoundError: If the file does not exist
+            ValueError: If the file path is invalid
         """
+        if not file_path:
+            raise ValueError("Invalid file path: file path cannot be empty")
+            
+        if not os.path.exists(file_path):
+            raise FileNotFoundError(f"File not found: {file_path}")
+        
+        # Check if we already have this track in the cache
+        with self._cache_lock:
+            if file_path in self._track_info_cache:
+                track_info = self._track_info_cache[file_path]
+                # Update position
+                track_info.position = min(elapsed, track_info.duration) if track_info.duration else elapsed
+                return track_info
+        
+        # Not in cache, create a new TrackInfo object
         try:
-            tag: TinyTag = TinyTag.get(file_path)
-            metadata = {
-                'title': tag.title,
-                'artist': tag.artist,
-                'album': tag.album,
-                'duration': tag.duration,
-                'bitrate': tag.bitrate,
-                'genre': tag.genre,
-                'year': tag.year,
-            }
+            # Start with a basic object from the file path
+            track_info = TrackInfo.from_file_path(file_path)
+            track_info.position = elapsed
+            
+            # Try to get metadata from tags
+            try:
+                tag: TinyTag = TinyTag.get(file_path)
+                # Update track info with tag data
+                metadata = {
+                    'track_name': tag.title,
+                    'artist': tag.artist,
+                    'album': tag.album,
+                    'duration': tag.duration,
+                    'bitrate': tag.bitrate,
+                    'genre': tag.genre,
+                    'year': tag.year,
+                }
+                track_info.update(metadata)
+                
+                # Publish event if event bus is available
+                if hasattr(self, 'event_bus') and self.event_bus:
+                    self.event_bus.publish('metadata_tags_loaded', {
+                        'file_path': file_path,
+                        'track_info': track_info.to_dict()
+                    })
+            except Exception as e:
+                # Log the error but continue with basic info
+                log.error(f"Error getting tag metadata: {e}")
+            
+            # Get index info if available
+            index_info = self.media_index.get(file_path, None)
+            if index_info:
+                # Only use index info to fill in missing fields
+                if not track_info.track_name and 'filename' in index_info:
+                    track_info.track_name = index_info['filename']
+                
+                if not track_info.duration and 'duration' in index_info:
+                    track_info.duration = index_info['duration']
+                
+                # Additional statistics from index
+                if 'play_count' in index_info:
+                    track_info.play_count = index_info['play_count']
+                
+                if 'last_played' in index_info and index_info['last_played']:
+                    try:
+                        track_info.last_played = datetime.fromisoformat(index_info['last_played'])
+                    except ValueError:
+                        # Ignore invalid date format
+                        pass
+                
+                if 'added_on' in index_info and index_info['added_on']:
+                    try:
+                        track_info.date_added = datetime.fromisoformat(index_info['added_on'])
+                    except ValueError:
+                        # Ignore invalid date format
+                        pass
+            
+            # If duration is still missing, calculate it
+            if not track_info.duration:
+                track_info.duration = self.get_track_duration(file_path)
+            
+            # Add to cache
+            with self._cache_lock:
+                self._track_info_cache[file_path] = track_info
             
             # Publish event if event bus is available
             if hasattr(self, 'event_bus') and self.event_bus:
-                self.event_bus.publish('metadata_tags_loaded', {
+                self.event_bus.publish('track_info_loaded', {
                     'file_path': file_path,
-                    'metadata': metadata
+                    'track_info': track_info.to_dict()
                 })
                 
-            return metadata
+            return track_info
+            
         except Exception as e:
-            log.error(f"Error getting metadata: {e}")
-            return None
+            log.error(f"Error getting track info for {file_path}: {e}")
+            # Return a basic track info object as fallback
+            basic_info = TrackInfo.from_file_path(file_path)
+            basic_info.position = elapsed
+            basic_info.duration = 0
+            return basic_info
 
     def remove_media_location(self, directory):
         """Remove a location from the index.
@@ -281,16 +539,49 @@ class MediaHandler:
         """
         return self.get_track_metadata.get(file_path)
     
-    def update_play_stats(self, file_path):
-        """Update play statistics for a file in the index.
+    def update_play_stats(self, file_path: str) -> None:
+        """
+        Update play statistics for a track.
         
         Args:
-            file_path (str): Path to the file
+            file_path (str): Path to the track file
         """
-        if file_path in self.media_index:
-            self.media_index[file_path]['last_played'] = datetime.now().isoformat()
-            self.media_index[file_path]['play_count'] += 1
-            self._save_index()
+        try:
+            # Update the cache if available
+            with self._cache_lock:
+                if file_path in self._track_info_cache:
+                    self._track_info_cache[file_path].increment_play_count()
+            
+            # Update the index
+            if file_path in self.media_index:
+                now_str = datetime.now().isoformat()
+                self.media_index[file_path]['last_played'] = now_str
+                self.media_index[file_path]['play_count'] = self.media_index[file_path].get('play_count', 0) + 1
+                self._save_index()
+                
+                # Publish event if event bus is available
+                if hasattr(self, 'event_bus') and self.event_bus:
+                    self.event_bus.publish('track_stats_updated', {
+                        'file_path': file_path,
+                        'play_count': self.media_index[file_path]['play_count'],
+                        'last_played': now_str
+                    })
+        except Exception as e:
+            log.error(f"Error updating play stats for {file_path}: {e}")
+
+    def invalidate_cache(self, file_path: Optional[str] = None) -> None:
+        """
+        Invalidate the track info cache for a specific file or the entire cache.
+        
+        Args:
+            file_path (Optional[str]): Path to invalidate, or None to invalidate all
+        """
+        with self._cache_lock:
+            if file_path:
+                if file_path in self._track_info_cache:
+                    del self._track_info_cache[file_path]
+            else:
+                self._track_info_cache.clear()
     
     def load_media_from_directory(self, directory, recursive=False):
         """Load all supported media files from a directory.
