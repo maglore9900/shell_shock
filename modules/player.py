@@ -111,6 +111,7 @@ class MusicPlayer:
             'state': self._state.get_state_name(),  # Use the state object to get the name
             'plugin_instance': None  # Reference to the active plugin instance
         }
+        self.current_track_info: Optional[TrackInfo] = None
         
         # Set initial volume
         volume_setting = env("DEFAULT_VOLUME", default=70)
@@ -187,15 +188,25 @@ class MusicPlayer:
         """Get the name of the current state"""
         return self._state.get_state_name()
       
-    def update_playback_info(self, info):
-        """Update playback information and publish relevant events"""
+    def update_playback_info(self, info: Dict[str, Any]) -> None:
+        """
+        Update playback information and publish relevant events.
+        
+        Args:
+            info (Dict[str, Any]): New playback information
+        """
         # Track what fields are changing
         state_changed = False
         source_changed = False
         track_changed = False
         
+        # Get the current state and source for comparison
+        current_state = self._state.get_state_name()
+        current_source = getattr(self, 'playback_info', {}).get('source', 'local')
+        current_track = getattr(self, 'playback_info', {}).get('track_name', None)
+        
         # Check for specific changes
-        if 'state' in info and info['state'] != self.playback_info['state']:
+        if 'state' in info and info['state'] != current_state:
             state_changed = True
             
             # Update state object based on state string
@@ -208,11 +219,26 @@ class MusicPlayer:
             if info['state'] in state_map:
                 self._state = state_map[info['state']]
         
-        if 'source' in info and info['source'] != self.playback_info['source']:
+        if 'source' in info and info['source'] != current_source:
             source_changed = True
                 
-        if 'track_name' in info and info['track_name'] != self.playback_info['track_name']:
+        if 'track_name' in info and info['track_name'] != current_track:
             track_changed = True
+        
+        # If we don't have a playback_info dict yet, create one
+        if not hasattr(self, 'playback_info'):
+            self.playback_info = {
+                'source': 'local',
+                'track_name': None,
+                'artist': None,
+                'album': None,
+                'genre': None,
+                'position': 0,
+                'duration': 0,
+                'bitrate': None,
+                'year': None,
+                'state': current_state
+            }
         
         # Update the playback info
         for key, value in info.items():
@@ -222,14 +248,14 @@ class MusicPlayer:
         # Publish relevant events
         if state_changed:
             self.event_bus.publish(self.STATE_CHANGED, {
-                'previous_state': self.playback_info['state'],
+                'previous_state': current_state,
                 'new_state': info['state'],
                 'source': self.playback_info['source']
             })
         
         if source_changed:
             self.event_bus.publish(self.SOURCE_CHANGED, {
-                'previous_source': self.playback_info['source'],
+                'previous_source': current_source,
                 'new_source': info['source']
             })
                 
@@ -358,41 +384,45 @@ class MusicPlayer:
         # Delegate to the current state object
         self._state.play(self)
                 
-    def get_current_playback(self):
-        """Get information about what's currently playing"""
-        current_playback = self.playback_info.copy()
-        if self._state == self.PLAYING_STATE:
-            if current_playback['source'] == 'local':
-                # Original implementation with metadata and position calculation
-                metadata = self.media_handler.get_metadata_from_tags(self.current_track) 
-                data = self.media_handler.get_metadata_from_file(self.current_track)
-                elapsed = time.time() - self.track_start_time   
-                
-                track_name = (metadata and metadata.get('title')) or (data and data.get('track_name')) or None
-                duration = (metadata and metadata.get('duration')) or (data and data.get('duration')) or None
-                artist = metadata['artist'] if metadata and 'artist' in metadata else None
-                album = metadata['album'] if metadata and 'album' in metadata else None
-                genre = metadata['genre'] if metadata and 'genre' in metadata else None
-                bitrate = metadata['bitrate'] if metadata and 'bitrate' in metadata else None
-                year = metadata['year'] if metadata and 'year' in metadata else None
-
-                self.update_playback_info({
-                                'track_name': track_name,
-                                'position': min(elapsed, duration),
-                                'duration': duration,
-                                'artist': artist,
-                                'album': album,
-                                'genre': genre,
-                                'bitrate': bitrate,
-                                'year': year,
-                                'source': 'local',
-                                'state': 'PLAYING' 
-                            })
-            else:
-                # Use the plugin manager to get current playback info
-                current_playback = self.plugin_manager.get_playback_info()
+    def get_current_playback(self) -> Dict[str, Any]:
+        """
+        Get information about what's currently playing.
         
-        return current_playback
+        Returns:
+            Dict[str, Any]: Dictionary with current playback information
+        """
+        # Check if we're playing from a plugin
+        active_plugin = self.plugin_manager.get_active_plugin()
+        
+        if active_plugin != 'local':
+            # Use the plugin manager to get current playback info
+            return self.plugin_manager.get_playback_info()
+        
+        # For local playback, use our track info
+        if self.current_track_info:
+            # Update position if playing
+            if self._state == self.PLAYING_STATE:
+                current_position = self.get_playback_position()
+                self.current_track_info.position = current_position
+            
+            # Convert to dictionary with state
+            result = self.current_track_info.to_dict()
+            result['state'] = self._state.get_state_name()
+            return result
+        
+        # No track info, return basic information
+        return {
+            'source': 'local',
+            'track_name': None,
+            'artist': None,
+            'album': None,
+            'genre': None,
+            'position': 0,
+            'duration': 0,
+            'bitrate': None,
+            'year': None,
+            'state': self._state.get_state_name()
+        }
 
     def pause(self):
         """Pause playback."""
@@ -401,7 +431,7 @@ class MusicPlayer:
         
         if active_plugin == 'local':
             self._state.pause(self)
-        elif active_plugin != 'local':
+        else:
             # Let the plugin handle it
             plugin = self.plugins.get(active_plugin)
             if plugin and hasattr(plugin, 'pause'):
@@ -414,7 +444,7 @@ class MusicPlayer:
         
         if active_plugin == 'local':
             self._state.stop(self)
-        elif active_plugin != 'local':
+        else:
             # Let the plugin handle it
             plugin = self.plugins.get(active_plugin)
             if plugin and hasattr(plugin, 'stop'):
