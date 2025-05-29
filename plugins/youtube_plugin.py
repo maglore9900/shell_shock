@@ -19,6 +19,9 @@ class Plugin(BasePlugin):
         
         # For temporary file management
         self.temp_dir = tempfile.mkdtemp()
+        # import os
+        # self.temp_dir = os.path.join(os.getcwd(), "temp_youtube")
+        # os.makedirs(self.temp_dir, exist_ok=True)
         self.current_temp_file = None
         
         # Create download directory if it doesn't exist
@@ -99,6 +102,18 @@ Available YouTube commands:
         except Exception as e:
             print(f"Error playing YouTube audio: {e}")
             return False
+
+    def _sanitize_filename(self, filename):
+        """Remove or replace characters that are invalid in filenames"""
+        import re
+        # Replace invalid characters with underscores or safe alternatives
+        filename = re.sub(r'[<>:"/\\|?*]', '_', filename)
+        # Remove extra spaces and periods
+        filename = re.sub(r'\s+', ' ', filename).strip('. ')
+        # Limit length to avoid path too long errors
+        if len(filename) > 100:
+            filename = filename[:100]
+        return filename
     
     def download_audio(self, args):
         """Download audio from a YouTube URL and convert to MP3"""
@@ -114,6 +129,9 @@ Available YouTube commands:
             
             # Use pytube to get the audio stream
             yt = YouTube(url)
+
+            safe_title = self._sanitize_filename(yt.title)
+            safe_author = self._sanitize_filename(yt.author)
             audio_stream = yt.streams.filter(only_audio=True).order_by('abr').desc().first()
             
             if not audio_stream:
@@ -121,25 +139,29 @@ Available YouTube commands:
                 return False
             
             # Create temp file names for WebM and MP3
-            temp_filename = f"temp_{yt.title}.{audio_stream.subtype}"
+            temp_filename = f"temp_{safe_title}.{audio_stream.subtype}"
             temp_filepath = os.path.join(self.temp_dir, temp_filename)
             
             # Final MP3 filename
-            mp3_filename = f"{yt.title} by {yt.author}.mp3"
+            mp3_filename = f"{safe_title} by {safe_author}.mp3"
             mp3_filepath = os.path.join(self.download_dir, mp3_filename)
             
             # Download to a temporary WebM file
             print(f"Downloading {temp_filename}")
-            audio_stream.download(output_path=self.temp_dir, filename=temp_filename)
+            # audio_stream.download(output_path=self.temp_dir, filename=temp_filename)
             
+            actual_downloaded_path = audio_stream.download(output_path=self.temp_dir, filename=temp_filename)
+            
+
             # Convert WebM to MP3
             print(f"Converting to MP3...")
-            success = self.player.media_handler.convert_to_mp3(temp_filepath, mp3_filepath)
+            # success = self.player.media_handler.convert_to_mp3(temp_filepath, mp3_filepath)
+            success = self.player.media_handler.convert_to_mp3(actual_downloaded_path, mp3_filepath)
             
             # Create a video info dictionary
             self.current_video = {
-                'title': yt.title,
-                'author': yt.author,
+                'title': safe_title,
+                'author': safe_author,
                 'url': url,
                 'duration': yt.length,
                 'local_file': mp3_filepath
@@ -149,7 +171,7 @@ Available YouTube commands:
                 if self.current_temp_file != temp_filepath:  # Only cleanup if it's not the active file
                     self.current_temp_file = temp_filepath
                     self.cleanup_temp_file()
-                print(f"Download Successful: {yt.title} by {yt.author}")
+                print(f"Download Successful: {safe_title} by {safe_author}")
                 return True
             else:
                 print(f"Error playing converted audio")
