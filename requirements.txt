@@ -1,0 +1,7 @@
+pygame
+ffmpeg-python
+tinytag
+pydub
+readchar
+python-environ
+pytubefix
